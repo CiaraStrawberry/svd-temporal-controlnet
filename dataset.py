@@ -16,8 +16,8 @@ from torchvision.io import read_image
 class WebVid10M(Dataset):
     def __init__(
             self,
-            csv_path, video_folder,motion_folder,
-            sample_size=256, sample_stride=4, sample_n_frames=16,
+            csv_path, video_folder,depth_folder,
+            sample_size=256, sample_stride=4, sample_n_frames=14,
             is_image=False,
         ):
         zero_rank_print(f"loading annotations from {csv_path} ...")
@@ -43,38 +43,7 @@ class WebVid10M(Dataset):
     
 
 
-    def get_batch_big(self, idx):
-        while True:
-            video_dict = self.dataset[idx]
-            videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
-        
-            video_dir = os.path.join(self.video_folder, f"{videoid}.mp4")
-            # If the video doesn't exist, return pixel values filled with zeros
-            if not os.path.exists(video_dir):
-                
-                idx = idx+ 1
-                continue
-               
-                
-            video_reader = VideoReader(video_dir)
-            video_length = len(video_reader)
-        
-            if not self.is_image:
-                clip_length = min(video_length, (self.sample_n_frames - 1) * self.sample_stride + 1)
-                start_idx = random.randint(0, video_length - clip_length)
-                batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-            else:
-                batch_index = [random.randint(0, video_length - 1)]
-        
-            pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
-            pixel_values = self.center_crop(pixel_values)
-            pixel_values = pixel_values / 255.
-            del video_reader
-        
-            if self.is_image:
-                pixel_values = pixel_values[0]
-        
-            return pixel_values, name
+
 
     def center_crop(self,img):
         h, w = img.shape[-2:]  # Assuming img shape is [C, H, W] or [B, C, H, W]
@@ -83,45 +52,6 @@ class WebVid10M(Dataset):
         left = (w - min_dim) // 2
         return img[..., top:top+min_dim, left:left+min_dim]
 
-    def get_batch_webvid_video(self, idx):
-        while True:
-            video_dict = self.dataset[idx]
-            videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
-            
-            video_dir = os.path.join(self.video_folder, page_dir, f"{videoid}.mp4")
-            
-            # Check if the file exists
-            if not os.path.exists(video_dir):
-                #print(f"File not found: {video_dir}")
-                idx = random.randint(0, len(self.dataset) - 1)
-                continue  # try the next index
-            
-            video_reader = VideoReader(video_dir)
-            video_length = len(video_reader)
-            
-            if not self.is_image:
-                clip_length = min(video_length, (self.sample_n_frames - 1) * self.sample_stride + 1)
-                start_idx = random.randint(0, video_length - clip_length)
-                batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-            else:
-                batch_index = [random.randint(0, video_length - 1)]
-            
-            pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
-            pixel_values = pixel_values / 255.
-            del video_reader
-            
-            if self.is_image:
-                pixel_values = pixel_values[0]
-            
-            return pixel_values, name
-            
-    def read_motion_score(self,preprocessed_dir, videoid):
-        score_file = os.path.join(preprocessed_dir, f"{videoid}.txt")
-        if not os.path.exists(score_file):
-            return None
-        with open(score_file, 'r') as file:
-            return float(file.read().strip())
-          
             
             
     def get_batch(self, idx):
@@ -131,30 +61,38 @@ class WebVid10M(Dataset):
         while True:
             video_dict = self.dataset[idx]
             videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
-
+        
             preprocessed_dir = os.path.join(self.video_folder, videoid)
-
+        
             if not os.path.exists(preprocessed_dir):
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue  # try the next index
-
-            motion_score = self.read_motion_score(self.motion_folder, videoid)
-            if motion_score is None:
-                idx = random.randint(0, len(self.dataset) - 1)
-                continue  # try the next index
-    
+        
+            # Read video frames
             image_files = sorted(os.listdir(preprocessed_dir), key=sort_frames)
             total_frames = len(image_files)
+            if total_frames < 14
+                continue
             clip_length = min(total_frames, (self.sample_n_frames - 1) * self.sample_stride + 1)
             start_idx = random.randint(0, total_frames - clip_length)
             batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-
+        
             # Read images from the directory
             pixel_values = torch.stack([read_image(os.path.join(preprocessed_dir, image_files[int(i)])) for i in batch_index])
             pixel_values = pixel_values.float() / 255.  # Convert from uint8 to float and normalize
+        
+            # Extract the first frame
+            first_frame = pixel_values[0]
+        
+            # Read depth frames from a different folder
+            depth_folder = os.path.join(self.depth_folder, videoid) 
+            depth_files = sorted(os.listdir(depth_folder), key=sort_frames)[:14]  
+            depth_pixel_values = torch.stack([read_image(os.path.join(depth_folder, df)) for df in depth_files])
+            depth_pixel_values = depth_pixel_values.float() / 255.  # Convert and normalize
+        
             if self.is_image:
                 pixel_values = pixel_values[0]
-            return pixel_values, name, motion_score
+            return pixel_values, name, depth_pixel_values,first_frame
         
         
     
@@ -164,14 +102,14 @@ class WebVid10M(Dataset):
     def __getitem__(self, idx):
         while True:
             try:
-                pixel_values, name, motion_score = self.get_batch(idx)
+                pixel_values, name, depth_pixel_values,first_frame = self.get_batch(idx)
                 break
             except Exception as e:
                 print(e)
                 idx = random.randint(0, self.length - 1)
 
         pixel_values = self.pixel_transforms(pixel_values)
-        sample = dict(pixel_values=pixel_values, text=name, motion_score=motion_score)
+        sample = dict(pixel_values=pixel_values, text=name, depth_pixel_values=depth_pixel_values,first_frame=first_frame)
         return sample
 
 

@@ -575,7 +575,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
     @classmethod
     def from_unet(
         cls,
-        unet: UNet2DConditionModel,
+        unet: UNetSpatioTemporalConditionModel,
         controlnet_conditioning_channel_order: str = "rgb",
         conditioning_embedding_out_channels: Optional[Tuple[int, ...]] = (16, 32, 96, 256),
         load_weights_from_unet: bool = True,
@@ -627,6 +627,9 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             projection_class_embeddings_input_dim=unet.config.projection_class_embeddings_input_dim,
             controlnet_conditioning_channel_order=controlnet_conditioning_channel_order,
             conditioning_embedding_out_channels=conditioning_embedding_out_channels,
+            num_frames=unet.config.num_frames,
+            sample_size=unet.config.sample_size,
+            
         )
 
         if load_weights_from_unet:

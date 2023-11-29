@@ -37,14 +37,14 @@ from PIL import Image
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
-
+from controlnet_sdv import ControlNetSDVModel
 import diffusers
 from diffusers import (
     AutoencoderKL,
     ControlNetModel,
     DDPMScheduler,
     StableDiffusionControlNetPipeline,
-    UNet2DConditionModel,
+    UNetSpatioTemporalConditionModel,
     UniPCMultistepScheduler,
 )
 from diffusers.optimization import get_scheduler
@@ -776,16 +776,16 @@ def main(args):
     vae = AutoencoderKL.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, variant=args.variant
     )
-    unet = UNet2DConditionModel.from_pretrained(
+    unet = UNetSpatioTemporalConditionModel.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision, variant=args.variant
     )
 
     if args.controlnet_model_name_or_path:
         logger.info("Loading existing controlnet weights")
-        controlnet = ControlNetModel.from_pretrained(args.controlnet_model_name_or_path)
+        controlnet = ControlNetSDVModel.from_pretrained(args.controlnet_model_name_or_path)
     else:
         logger.info("Initializing controlnet weights from unet")
-        controlnet = ControlNetModel.from_unet(unet)
+        controlnet = ControlNetSDVModel.from_unet(unet)
 
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
@@ -809,7 +809,7 @@ def main(args):
                 model = models.pop()
 
                 # load diffusers style into model
-                load_model = ControlNetModel.from_pretrained(input_dir, subfolder="controlnet")
+                load_model = ControlNetSDVModel.from_pretrained(input_dir, subfolder="controlnet")
                 model.register_to_config(**load_model.config)
 
                 model.load_state_dict(load_model.state_dict())
@@ -1015,21 +1015,29 @@ def main(args):
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
                 # Get the text embedding for conditioning
-                encoder_hidden_states = text_encoder(batch["input_ids"])[0]
+                encoder_hidden_states = text_encoder(batch["text"])[0]
 
                 controlnet_image = batch["conditioning_pixel_values"].to(dtype=weight_dtype)
+                input_first_image = batch["first_frame_pixel_values"].to(dtype=weight_dtype)
+                
+                first_image_latents = vae.encode(input_first_image).latent_dist.sample()
 
+                latent_model_input = torch.cat([noisy_latents, first_image_latents], dim=2)
+                
                 down_block_res_samples, mid_block_res_sample = controlnet(
-                    noisy_latents,
+                    latent_model_input,
                     timesteps,
                     encoder_hidden_states=encoder_hidden_states,
                     controlnet_cond=controlnet_image,
                     return_dict=False,
                 )
 
+                
+
+                
                 # Predict the noise residual
                 model_pred = unet(
-                    noisy_latents,
+                    latent_model_input,
                     timesteps,
                     encoder_hidden_states=encoder_hidden_states,
                     down_block_additional_residuals=[
