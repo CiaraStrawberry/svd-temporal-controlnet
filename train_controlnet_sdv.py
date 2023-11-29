@@ -30,7 +30,6 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
-from datasets import load_dataset
 from huggingface_hub import create_repo, upload_folder
 from packaging import version
 from PIL import Image
@@ -403,7 +402,7 @@ def parse_args(input_args=None):
             "path to the dataset csv"
         ),
     )
-        parser.add_argument(
+    parser.add_argument(
         "--video_folder",
         type=str,
         default=None,
