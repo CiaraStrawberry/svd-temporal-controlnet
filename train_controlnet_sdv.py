@@ -103,75 +103,30 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
     else:
         generator = torch.Generator(device=accelerator.device).manual_seed(args.seed)
 
-    if len(args.validation_image) == len(args.validation_prompt):
-        validation_images = args.validation_image
-        validation_prompts = args.validation_prompt
-    elif len(args.validation_image) == 1:
-        validation_images = args.validation_image * len(args.validation_prompt)
-        validation_prompts = args.validation_prompt
-    elif len(args.validation_prompt) == 1:
-        validation_images = args.validation_image
-        validation_prompts = args.validation_prompt * len(args.validation_image)
-    else:
-        raise ValueError(
-            "number of `args.validation_image` and `args.validation_prompt` should be checked in `parse_args`"
-        )
+    # Check if the lengths of validation images and control images arrays are equal
+    if len(args.validation_images) != len(args.validation_control_images):
+        raise ValueError("The length of `args.validation_images` and `args.validation_control_images` must be equal.")
 
     image_logs = []
 
-    for validation_prompt, validation_image in zip(validation_prompts, validation_images):
-        validation_image = Image.open(validation_image).convert("RGB")
+    # Assuming args.validation_prompt is a single prompt for all images
+    validation_prompt = args.validation_prompt
 
+    for validation_image, validation_control_image in zip(args.validation_images, args.validation_control_images):
         images = []
 
         for _ in range(args.num_validation_images):
             with torch.autocast("cuda"):
                 image = pipeline(
-                    validation_prompt, validation_image, num_inference_steps=20, generator=generator
+                    validation_prompt, validation_image, validation_control_image, num_inference_steps=20, generator=generator
                 ).images[0]
 
             images.append(image)
 
         image_logs.append(
-            {"validation_image": validation_image, "images": images, "validation_prompt": validation_prompt}
+            {"validation_image": validation_image, "validation_control_image": validation_control_image, "images": images, "validation_prompt": validation_prompt}
         )
-
-    for tracker in accelerator.trackers:
-        if tracker.name == "tensorboard":
-            for log in image_logs:
-                images = log["images"]
-                validation_prompt = log["validation_prompt"]
-                validation_image = log["validation_image"]
-
-                formatted_images = []
-
-                formatted_images.append(np.asarray(validation_image))
-
-                for image in images:
-                    formatted_images.append(np.asarray(image))
-
-                formatted_images = np.stack(formatted_images)
-
-                tracker.writer.add_images(validation_prompt, formatted_images, step, dataformats="NHWC")
-        elif tracker.name == "wandb":
-            formatted_images = []
-
-            for log in image_logs:
-                images = log["images"]
-                validation_prompt = log["validation_prompt"]
-                validation_image = log["validation_image"]
-
-                formatted_images.append(wandb.Image(validation_image, caption="Controlnet conditioning"))
-
-                for image in images:
-                    image = wandb.Image(image, caption=validation_prompt)
-                    formatted_images.append(image)
-
-            tracker.log({"validation": formatted_images})
-        else:
-            logger.warn(f"image logging not implemented for {tracker.name}")
-
-        return image_logs
+  
 
 
 def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str):
@@ -470,16 +425,7 @@ def parse_args(input_args=None):
         default=None,
         help="The config of the Dataset, leave as None if there's only one config.",
     )
-    parser.add_argument(
-        "--train_data_dir",
-        type=str,
-        default=None,
-        help=(
-            "A folder containing the training data. Folder contents must follow the structure described in"
-            " https://huggingface.co/docs/datasets/image_dataset#imagefolder. In particular, a `metadata.jsonl` file"
-            " must exist to provide the captions for the images. Ignored if `dataset_name` is specified."
-        ),
-    )
+
     parser.add_argument(
         "--image_column", type=str, default="image", help="The column of the dataset containing the target image."
     )
@@ -522,7 +468,7 @@ def parse_args(input_args=None):
         ),
     )
     parser.add_argument(
-        "--validation_image",
+        "--validation_image_folder",
         type=str,
         default=None,
         nargs="+",
@@ -534,15 +480,12 @@ def parse_args(input_args=None):
         ),
     )
     parser.add_argument(
-        "--validation_image",
+        "--validation_control_folder",
         type=str,
         default=None,
         nargs="+",
         help=(
-            "A set of paths to the controlnet conditioning image be evaluated every `--validation_steps`"
-            " and logged to `--report_to`. Provide either a matching number of `--validation_prompt`s, a"
-            " a single `--validation_prompt` to be used with all `--validation_image`s, or a single"
-            " `--validation_image` that will be used with all `--validation_prompt`s."
+            "the validation control image"
         ),
     )
     parser.add_argument(
@@ -554,7 +497,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--validation_steps",
         type=int,
-        default=100,
+        default=20,
         help=(
             "Run validation every X steps. Validation consists of running the prompt"
             " `args.validation_prompt` multiple times: `args.num_validation_images`"
@@ -585,17 +528,7 @@ def parse_args(input_args=None):
     if args.validation_prompt is None and args.validation_image is not None:
         raise ValueError("`--validation_prompt` must be set if `--validation_image` is set")
 
-    if (
-        args.validation_image is not None
-        and args.validation_prompt is not None
-        and len(args.validation_image) != 1
-        and len(args.validation_prompt) != 1
-        and len(args.validation_image) != len(args.validation_prompt)
-    ):
-        raise ValueError(
-            "Must provide either 1 `--validation_image`, 1 `--validation_prompt`,"
-            " or the same number of `--validation_prompt`s and `--validation_image`s"
-        )
+
 
     if args.resolution % 8 != 0:
         raise ValueError(

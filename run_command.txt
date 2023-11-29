@@ -1,0 +1,20 @@
+accelerate launch train_controlnet.py \
+ --pretrained_model_name_or_path="stabilityai/stable-video-diffusion-img2vid" \
+ --output_dir="model_out" \
+ --csv_path="workspace/sdv_controlnet/results_2M_train.csv" \
+ --video_folder="workspace/sdv_controlnet/training_data" \
+ --depth_folder="workspace/sdv_controlnet/training_data" \
+ --validation_image_folder="workspace/sdv_controlnet/validation/depth" \
+ --validation_control_folder="workspace/sdv_controlnet/validation/rgb" \
+ --resolution=256 \
+ --learning_rate=1e-5 \
+ --validation_image "./face_landmarks1.jpeg" "./face_landmarks2.jpeg" "./face_landmarks3.jpeg" \
+ --validation_prompt "High-quality close-up dslr photo of man wearing a hat with trees in the background" "Girl smiling, professional dslr photograph, dark background, studio lights, high quality" "Portrait of a clown face, oil on canvas, bittersweet expression" \
+ --train_batch_size=8 \
+ --num_train_epochs=30 \
+ --mixed_precision="fp16" \
+ --tracker_project_name="controlnet" \
+ --enable_xformers_memory_efficient_attention \
+ --checkpointing_steps=5000 \
+ --report_to wandb \
+ --push_to_hub

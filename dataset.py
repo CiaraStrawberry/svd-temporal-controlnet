@@ -18,7 +18,6 @@ class WebVid10M(Dataset):
             self,
             csv_path, video_folder,depth_folder,
             sample_size=256, sample_stride=4, sample_n_frames=14,
-            is_image=False,
         ):
         zero_rank_print(f"loading annotations from {csv_path} ...")
         with open(csv_path, 'r') as csvfile:
@@ -30,7 +29,6 @@ class WebVid10M(Dataset):
         self.sample_stride   = sample_stride
         self.motion_folder = motion_folder
         self.sample_n_frames = sample_n_frames
-        self.is_image        = is_image
         print("length",len(self.dataset))
         sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
         print("sample size",sample_size)
