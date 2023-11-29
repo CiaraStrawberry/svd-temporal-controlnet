@@ -1,4 +1,4 @@
-accelerate launch train_controlnet.py \
+accelerate launch train_controlnet_sdv.py \
  --pretrained_model_name_or_path="stabilityai/stable-video-diffusion-img2vid" \
  --output_dir="model_out" \
  --csv_path="workspace/sdv_controlnet/results_2M_train.csv" \
