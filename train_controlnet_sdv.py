@@ -46,11 +46,13 @@ from diffusers import (
     StableDiffusionControlNetPipeline,
     UNetSpatioTemporalConditionModel,
     UniPCMultistepScheduler,
+    StableVideoDiffusionPipeline,
 )
+from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
-
+from dataset import WebVid10M
 
 if is_wandb_available():
     import wandb
@@ -77,7 +79,7 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
 
     controlnet = accelerator.unwrap_model(controlnet)
 
-    pipeline = StableDiffusionControlNetPipeline.from_pretrained(
+    pipeline = StableVideoDiffusionPipelineControlNet.from_pretrained(
         args.pretrained_model_name_or_path,
         vae=vae,
         text_encoder=text_encoder,
@@ -439,13 +441,27 @@ def parse_args(input_args=None):
         ),
     )
     parser.add_argument(
-        "--dataset_name",
+        "--csv_path",
         type=str,
         default=None,
         help=(
-            "The name of the Dataset (from the HuggingFace hub) to train on (could be your own, possibly private,"
-            " dataset). It can also be a path pointing to a local copy of a dataset in your filesystem,"
-            " or to a folder containing files that 🤗 Datasets can understand."
+            "path to the dataset csv"
+        ),
+    )
+        parser.add_argument(
+        "--video_folder",
+        type=str,
+        default=None,
+        help=(
+            "path to the video folder"
+        ),
+    )
+    parser.add_argument(
+        "--depth_folder",
+        type=str,
+        default=None,
+        help=(
+            "path to the depth folder"
         ),
     )
     parser.add_argument(
@@ -518,6 +534,18 @@ def parse_args(input_args=None):
         ),
     )
     parser.add_argument(
+        "--validation_image",
+        type=str,
+        default=None,
+        nargs="+",
+        help=(
+            "A set of paths to the controlnet conditioning image be evaluated every `--validation_steps`"
+            " and logged to `--report_to`. Provide either a matching number of `--validation_prompt`s, a"
+            " a single `--validation_prompt` to be used with all `--validation_image`s, or a single"
+            " `--validation_image` that will be used with all `--validation_prompt`s."
+        ),
+    )
+    parser.add_argument(
         "--num_validation_images",
         type=int,
         default=4,
@@ -547,12 +575,6 @@ def parse_args(input_args=None):
         args = parser.parse_args(input_args)
     else:
         args = parser.parse_args()
-
-    if args.dataset_name is None and args.train_data_dir is None:
-        raise ValueError("Specify either `--dataset_name` or `--train_data_dir`")
-
-    if args.dataset_name is not None and args.train_data_dir is not None:
-        raise ValueError("Specify only one of `--dataset_name` or `--train_data_dir`")
 
     if args.proportion_empty_prompts < 0 or args.proportion_empty_prompts > 1:
         raise ValueError("`--proportion_empty_prompts` must be in the range [0, 1].")
@@ -589,56 +611,8 @@ def make_train_dataset(args, tokenizer, accelerator):
 
     # In distributed training, the load_dataset function guarantees that only one local process can concurrently
     # download the dataset.
-    if args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
-        dataset = load_dataset(
-            args.dataset_name,
-            args.dataset_config_name,
-            cache_dir=args.cache_dir,
-        )
-    else:
-        if args.train_data_dir is not None:
-            dataset = load_dataset(
-                args.train_data_dir,
-                cache_dir=args.cache_dir,
-            )
-        # See more about loading custom images at
-        # https://huggingface.co/docs/datasets/v2.0.0/en/dataset_script
-
-    # Preprocessing the datasets.
-    # We need to tokenize inputs and targets.
-    column_names = dataset["train"].column_names
-
-    # 6. Get the column names for input/target.
-    if args.image_column is None:
-        image_column = column_names[0]
-        logger.info(f"image column defaulting to {image_column}")
-    else:
-        image_column = args.image_column
-        if image_column not in column_names:
-            raise ValueError(
-                f"`--image_column` value '{args.image_column}' not found in dataset columns. Dataset columns are: {', '.join(column_names)}"
-            )
-
-    if args.caption_column is None:
-        caption_column = column_names[1]
-        logger.info(f"caption column defaulting to {caption_column}")
-    else:
-        caption_column = args.caption_column
-        if caption_column not in column_names:
-            raise ValueError(
-                f"`--caption_column` value '{args.caption_column}' not found in dataset columns. Dataset columns are: {', '.join(column_names)}"
-            )
-
-    if args.conditioning_image_column is None:
-        conditioning_image_column = column_names[2]
-        logger.info(f"conditioning image column defaulting to {conditioning_image_column}")
-    else:
-        conditioning_image_column = args.conditioning_image_column
-        if conditioning_image_column not in column_names:
-            raise ValueError(
-                f"`--conditioning_image_column` value '{args.conditioning_image_column}' not found in dataset columns. Dataset columns are: {', '.join(column_names)}"
-            )
+    dataset = WebVid10M(args.csv_path,args.video_folder,args.depth_folder)
+    
 
     def tokenize_captions(examples, is_train=True):
         captions = []
