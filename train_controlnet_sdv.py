@@ -36,6 +36,8 @@ from PIL import Image
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
+from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
+
 from controlnet_sdv import ControlNetSDVModel
 import diffusers
 from diffusers import (
@@ -71,6 +73,24 @@ def image_grid(imgs, rows, cols):
     for i, img in enumerate(imgs):
         grid.paste(img, box=(i % cols * w, i // cols * h))
     return grid
+
+
+def encode_image_clip(image, device, dtype,image_encoder):
+
+    num_videos_per_prompt = 1
+
+    image = image.to(device=device, dtype=dtype)
+    image_embeddings = image_encoder(image).image_embeds
+    image_embeddings = image_embeddings.unsqueeze(1)
+
+    # duplicate image embeddings for each generation per prompt, using mps friendly method
+    bs_embed, seq_len, _ = image_embeddings.shape
+    image_embeddings = image_embeddings.repeat(1, num_videos_per_prompt, 1)
+    image_embeddings = image_embeddings.view(bs_embed * num_videos_per_prompt, seq_len, -1)
+
+
+    return image_embeddings
+
 
 
 def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, accelerator, weight_dtype, step):
@@ -117,7 +137,7 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
         for _ in range(args.num_validation_images):
             with torch.autocast("cuda"):
                 image = pipeline(
-                    validation_prompt, validation_image, validation_control_image, num_inference_steps=20, generator=generator
+                    validation_image, validation_control_image, num_inference_steps=20, generator=generator
                 ).images[0]
 
             images.append(image)
@@ -129,23 +149,13 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
 
 
 def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str):
-    text_encoder_config = PretrainedConfig.from_pretrained(
+    image_encoder_config = PretrainedConfig.from_pretrained(
         pretrained_model_name_or_path,
-        subfolder="text_encoder",
+        subfolder="image_encoder",
         revision=revision,
     )
-    model_class = text_encoder_config.architectures[0]
-
-    if model_class == "CLIPTextModel":
-        from transformers import CLIPTextModel
-
-        return CLIPTextModel
-    elif model_class == "RobertaSeriesModelWithTransformation":
-        from diffusers.pipelines.alt_diffusion.modeling_roberta_series import RobertaSeriesModelWithTransformation
-
-        return RobertaSeriesModelWithTransformation
-    else:
-        raise ValueError(f"{model_class} is not supported.")
+    model_class = image_encoder_config.architectures[0]
+    return CLIPVisionModelWithProjection
 
 
 def save_model_card(repo_id: str, image_logs=None, base_model=str, repo_folder=None):
@@ -660,24 +670,10 @@ def main(args):
                 repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
             ).repo_id
 
-    # Load the tokenizer
-    if args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, revision=args.revision, use_fast=False)
-    elif args.pretrained_model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(
-            args.pretrained_model_name_or_path,
-            subfolder="tokenizer",
-            revision=args.revision,
-            use_fast=False,
-        )
-
-    # import correct text encoder class
-    text_encoder_cls = import_model_class_from_model_name_or_path(args.pretrained_model_name_or_path, args.revision)
-
     # Load scheduler and models
     noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
-    text_encoder = text_encoder_cls.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision, variant=args.variant
+    image_encoder = CLIPVisionModelWithProjection.from_pretrained(
+        args.pretrained_model_name_or_path, subfolder="image_encoder", revision=args.revision, variant=args.variant
     )
     vae = AutoencoderKL.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, variant=args.variant
@@ -726,7 +722,7 @@ def main(args):
 
     vae.requires_grad_(False)
     unet.requires_grad_(False)
-    text_encoder.requires_grad_(False)
+    image_encoder.requires_grad_(False)
     controlnet.train()
 
     if args.enable_xformers_memory_efficient_attention:
@@ -832,7 +828,7 @@ def main(args):
     # Move vae, unet and text_encoder to device and cast to weight_dtype
     vae.to(accelerator.device, dtype=weight_dtype)
     unet.to(accelerator.device, dtype=weight_dtype)
-    text_encoder.to(accelerator.device, dtype=weight_dtype)
+    image_encoder.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -920,15 +916,18 @@ def main(args):
                 # (this is the forward diffusion process)
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                # Get the text embedding for conditioning
-                encoder_hidden_states = text_encoder(batch["text"])[0]
-
+                #source images
                 controlnet_image = batch["conditioning_pixel_values"].to(dtype=weight_dtype)
                 input_first_image = batch["first_frame_pixel_values"].to(dtype=weight_dtype)
+
+                #image encoding
+                encoder_hidden_states = encode_image_clip(input_first_image,latents.device,latents.dtype,image_encoder)
+
                 
                 first_image_latents = vae.encode(input_first_image).latent_dist.sample()
+                first_frame_latents_big = first_image_latents.repeat(num_videos_per_prompt, 1, 1, 1)
 
-                latent_model_input = torch.cat([noisy_latents, first_image_latents], dim=2)
+                latent_model_input = torch.cat([noisy_latents, first_frame_latents_big], dim=2)
                 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,

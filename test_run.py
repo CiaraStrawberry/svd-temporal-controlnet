@@ -6,7 +6,7 @@ from diffusers.utils import load_image, export_to_video
 pipe = StableVideoDiffusionPipeline.from_pretrained(
     "stabilityai/stable-video-diffusion-img2vid"
 )
-#pipe.enable_model_cpu_offload()
+pipe.enable_model_cpu_offload()
 
 # Load the conditioning image
 image = load_image("https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png?download=true")
