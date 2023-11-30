@@ -5,3 +5,4 @@ einops
 opencv-python
 decord
 imageio
+xformers

@@ -9,7 +9,8 @@ import cv2
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
 from utils.util import zero_rank_print
-from torchvision.io import read_image
+#from torchvision.io import read_image
+from PIL import Image
 
 
 
@@ -27,8 +28,8 @@ class WebVid10M(Dataset):
         random.shuffle(self.dataset)    
         self.video_folder    = video_folder
         self.sample_stride   = sample_stride
-        self.motion_folder = motion_folder
         self.sample_n_frames = sample_n_frames
+        self.depth_folder = depth_folder
         print("length",len(self.dataset))
         sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
         print("sample size",sample_size)
@@ -49,48 +50,54 @@ class WebVid10M(Dataset):
         top = (h - min_dim) // 2
         left = (w - min_dim) // 2
         return img[..., top:top+min_dim, left:left+min_dim]
+    def pil_image_to_tensor(self,image):
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        """Convert a PIL image to a PyTorch tensor."""
+        return torch.from_numpy(np.array(image)).permute(2, 0, 1).float() / 255.
 
             
             
     def get_batch(self, idx):
         def sort_frames(frame_name):
             return int(frame_name.split('_')[1].split('.')[0])
-
+    
         while True:
             video_dict = self.dataset[idx]
             videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
-        
             preprocessed_dir = os.path.join(self.video_folder, videoid)
-        
+    
             if not os.path.exists(preprocessed_dir):
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue  # try the next index
-        
+            
+            print(f"run idx = {videoid}")
+            
             # Read video frames
             image_files = sorted(os.listdir(preprocessed_dir), key=sort_frames)
             total_frames = len(image_files)
+            print(total_frames)
             if total_frames < 14:
+                idx = random.randint(0, len(self.dataset) - 1)
                 continue
             clip_length = min(total_frames, (self.sample_n_frames - 1) * self.sample_stride + 1)
             start_idx = random.randint(0, total_frames - clip_length)
             batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
         
             # Read images from the directory
-            pixel_values = torch.stack([read_image(os.path.join(preprocessed_dir, image_files[int(i)])) for i in batch_index])
-            pixel_values = pixel_values.float() / 255.  # Convert from uint8 to float and normalize
-        
+            pixel_values = torch.stack([self.pil_image_to_tensor(Image.open(os.path.join(preprocessed_dir, image_files[int(i)]))) for i in batch_index])
+            
             # Extract the first frame
             first_frame = pixel_values[0]
         
             # Read depth frames from a different folder
             depth_folder = os.path.join(self.depth_folder, videoid) 
             depth_files = sorted(os.listdir(depth_folder), key=sort_frames)[:14]  
-            depth_pixel_values = torch.stack([read_image(os.path.join(depth_folder, df)) for df in depth_files])
-            depth_pixel_values = depth_pixel_values.float() / 255.  # Convert and normalize
-        
-            if self.is_image:
-                pixel_values = pixel_values[0]
-            return pixel_values, name, depth_pixel_values,first_frame
+            depth_pixel_values = torch.stack([self.pil_image_to_tensor(Image.open(os.path.join(depth_folder, df))) for df in depth_files])
+            
+            #if self.is_image:
+            #    pixel_values = pixel_values[0]
+            return pixel_values, depth_pixel_values, first_frame
         
         
     
@@ -98,16 +105,17 @@ class WebVid10M(Dataset):
         return self.length
 
     def __getitem__(self, idx):
-        while True:
-            try:
-                pixel_values, name, depth_pixel_values,first_frame = self.get_batch(idx)
-                break
-            except Exception as e:
-                print(e)
-                idx = random.randint(0, self.length - 1)
+        
+        #while True:
+           # try:
+        pixel_values, depth_pixel_values,first_frame = self.get_batch(idx)
+           #     break
+          #  except Exception as e:
+          #      print(e)
+          #      idx = random.randint(0, self.length - 1)
 
         pixel_values = self.pixel_transforms(pixel_values)
-        sample = dict(pixel_values=pixel_values, text=name, depth_pixel_values=depth_pixel_values,first_frame=first_frame)
+        sample = dict(pixel_values=pixel_values, depth_pixel_values=depth_pixel_values)
         return sample
 
 
