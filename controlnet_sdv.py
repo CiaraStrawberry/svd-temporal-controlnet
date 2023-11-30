@@ -217,7 +217,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         self.add_embedding = TimestepEmbedding(projection_class_embeddings_input_dim, time_embed_dim)
 
         self.down_blocks = nn.ModuleList([])
-        self.up_blocks = nn.ModuleList([])
+        self.controlnet_down_blocks = nn.ModuleList([])
 
         if isinstance(num_attention_heads, int):
             num_attention_heads = (num_attention_heads,) * len(down_block_types)
@@ -235,6 +235,12 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
 
         # down
         output_channel = block_out_channels[0]
+        controlnet_block = nn.Conv2d(output_channel, output_channel, kernel_size=1)
+        controlnet_block = zero_module(controlnet_block)
+        self.controlnet_down_blocks.append(controlnet_block)
+
+        
+        
         for i, down_block_type in enumerate(down_block_types):
             input_channel = output_channel
             output_channel = block_out_channels[i]
@@ -254,8 +260,24 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 resnet_act_fn="silu",
             )
             self.down_blocks.append(down_block)
+            for _ in range(layers_per_block):
+                controlnet_block = nn.Conv2d(output_channel, output_channel, kernel_size=1)
+                controlnet_block = zero_module(controlnet_block)
+                self.controlnet_down_blocks.append(controlnet_block)
+
+            if not is_final_block:
+                controlnet_block = nn.Conv2d(output_channel, output_channel, kernel_size=1)
+                controlnet_block = zero_module(controlnet_block)
+                self.controlnet_down_blocks.append(controlnet_block)
+
 
         # mid
+
+        controlnet_block = nn.Conv2d(mid_block_channel, mid_block_channel, kernel_size=1)
+        controlnet_block = zero_module(controlnet_block)
+        self.controlnet_mid_block = controlnet_block
+
+        
         self.mid_block = UNetMidBlockSpatioTemporal(
             block_out_channels[-1],
             temb_channels=blocks_time_embed_dim,
@@ -264,59 +286,19 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             num_attention_heads=num_attention_heads[-1],
         )
 
-        # count how many layers upsample the images
-        self.num_upsamplers = 0
 
-        # up
-        reversed_block_out_channels = list(reversed(block_out_channels))
-        reversed_num_attention_heads = list(reversed(num_attention_heads))
-        reversed_layers_per_block = list(reversed(layers_per_block))
-        reversed_cross_attention_dim = list(reversed(cross_attention_dim))
-        reversed_transformer_layers_per_block = list(reversed(transformer_layers_per_block))
 
-        output_channel = reversed_block_out_channels[0]
-        for i, up_block_type in enumerate(up_block_types):
-            is_final_block = i == len(block_out_channels) - 1
-
-            prev_output_channel = output_channel
-            output_channel = reversed_block_out_channels[i]
-            input_channel = reversed_block_out_channels[min(i + 1, len(block_out_channels) - 1)]
-
-            # add upsample block for all BUT final layer
-            if not is_final_block:
-                add_upsample = True
-                self.num_upsamplers += 1
-            else:
-                add_upsample = False
-
-            up_block = get_up_block(
-                up_block_type,
-                num_layers=reversed_layers_per_block[i] + 1,
-                transformer_layers_per_block=reversed_transformer_layers_per_block[i],
-                in_channels=input_channel,
-                out_channels=output_channel,
-                prev_output_channel=prev_output_channel,
-                temb_channels=blocks_time_embed_dim,
-                add_upsample=add_upsample,
-                resnet_eps=1e-5,
-                resolution_idx=i,
-                cross_attention_dim=reversed_cross_attention_dim[i],
-                num_attention_heads=reversed_num_attention_heads[i],
-                resnet_act_fn="silu",
-            )
-            self.up_blocks.append(up_block)
-            prev_output_channel = output_channel
 
         # out
-        self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=32, eps=1e-5)
-        self.conv_act = nn.SiLU()
+        #self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=32, eps=1e-5)
+        #self.conv_act = nn.SiLU()
 
-        self.conv_out = nn.Conv2d(
-            block_out_channels[0],
-            out_channels,
-            kernel_size=3,
-            padding=1,
-        )
+        #self.conv_out = nn.Conv2d(
+        #    block_out_channels[0],
+        #    out_channels,
+        #    kernel_size=3,
+        #    padding=1,
+        #)
 
     @property
     def attn_processors(self) -> Dict[str, AttentionProcessor]:

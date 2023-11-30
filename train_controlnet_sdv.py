@@ -84,14 +84,14 @@ def _get_add_time_ids(
         noise_aug_strength,
         dtype,
         batch_size,
-        unet,
         fps=4,
         motion_bucket_id=128,
+        unet=None,
     ):
         add_time_ids = [fps, motion_bucket_id, noise_aug_strength]
 
-        passed_add_embed_dim = self.unet.config.addition_time_embed_dim * len(add_time_ids)
-        expected_add_embed_dim = self.unet.add_embedding.linear_1.in_features
+        passed_add_embed_dim = unet.config.addition_time_embed_dim * len(add_time_ids)
+        expected_add_embed_dim = unet.add_embedding.linear_1.in_features
 
         if expected_add_embed_dim != passed_add_embed_dim:
             raise ValueError(
@@ -882,14 +882,16 @@ def main(args):
                     args.train_batch_size,
                     6,
                     128,
+                    unet=unet,
                 )
-                added_time_ids = added_time_ids.to(device)
+                added_time_ids = added_time_ids.to(latents.device)
             
 
                 repeated_first_frames = first_frame_latents.unsqueeze(2).repeat(1, 1, 14, 1, 1)
 
-                latent_model_input = torch.cat([noisy_latents, repeated_first_frames], dim=2)
-                
+                latent_model_input = torch.cat([noisy_latents, repeated_first_frames], dim=1)
+                latent_model_input = rearrange(latent_model_input,"b c f h w -> b f c h w")
+                print(latent_model_input.shape ,"latent model input shape")
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,
                     timesteps,
