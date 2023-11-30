@@ -79,6 +79,32 @@ def image_grid(imgs, rows, cols):
     return grid
 
 
+
+def _get_add_time_ids(
+        noise_aug_strength,
+        dtype,
+        batch_size,
+        unet,
+        fps=4,
+        motion_bucket_id=128,
+    ):
+        add_time_ids = [fps, motion_bucket_id, noise_aug_strength]
+
+        passed_add_embed_dim = self.unet.config.addition_time_embed_dim * len(add_time_ids)
+        expected_add_embed_dim = self.unet.add_embedding.linear_1.in_features
+
+        if expected_add_embed_dim != passed_add_embed_dim:
+            raise ValueError(
+                f"Model expects an added time embedding vector of length {expected_add_embed_dim}, but a vector of {passed_add_embed_dim} was created. The model has an incorrect config. Please check `unet.config.time_embedding_type` and `text_encoder_2.config.projection_dim`."
+            )
+
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+       # add_time_ids = add_time_ids.repeat(batch_size * num_videos_per_prompt, 1)
+
+
+        return add_time_ids
+
+
 def encode_image_clip(image, device, dtype, image_encoder):
     num_videos_per_prompt = 1
 
@@ -818,14 +844,14 @@ def main(args):
                 print("image shape vae input",batch["pixel_values"].shape)
 
 
-                pixel_values = batch["pixel_values"]e.to(vae.dtype)
-                input_first_image = pixel_values[:, :, 0, :, :]
+                pixel_values = batch["pixel_values"].to(vae.dtype)
+                input_first_image = pixel_values[:, 0, :, :, :]
                 with torch.no_grad():
 
                     pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
                     pixel_values = pixel_values.to(vae.dtype)
                     latents = vae.encode(pixel_values).latent_dist
-                    latents = latents.sample()
+                    latents = latents.mode()
                     latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
                     latents = latents * vae.config.scaling_factor
                     first_frame_latents = latents[:, :, 0, :, :]
@@ -845,30 +871,43 @@ def main(args):
                 controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
 
                 #image encoding
+                print("encoding input shape",input_first_image.shape)
                 encoder_hidden_states = encode_image_clip(input_first_image,latents.device,latents.dtype,image_encoder)
 
-                
-                first_image_latents = vae.encode(input_first_image).latent_dist.sample()
-                first_frame_latents_big = first_image_latents.repeat(num_videos_per_prompt, 1, 1, 1)
+                #time embedding,  
+                noise_aug_strength = 0.02 #"¯\_(ツ)_/¯
+                added_time_ids = _get_add_time_ids(
+                    noise_aug_strength,
+                    encoder_hidden_states.dtype,
+                    args.train_batch_size,
+                    6,
+                    128,
+                )
+                added_time_ids = added_time_ids.to(device)
+            
 
-                latent_model_input = torch.cat([noisy_latents, first_frame_latents_big], dim=2)
+                repeated_first_frames = first_frame_latents.unsqueeze(2).repeat(1, 1, 14, 1, 1)
+
+                latent_model_input = torch.cat([noisy_latents, repeated_first_frames], dim=2)
                 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,
                     timesteps,
                     encoder_hidden_states=encoder_hidden_states,
+                    added_time_ids=added_time_ids,
                     controlnet_cond=controlnet_image,
                     return_dict=False,
                 )
 
                 
-
+            
                 
                 # Predict the noise residual
                 model_pred = unet(
                     latent_model_input,
                     timesteps,
                     encoder_hidden_states=encoder_hidden_states,
+                    added_time_ids=added_time_ids,
                     down_block_additional_residuals=[
                         sample.to(dtype=weight_dtype) for sample in down_block_res_samples
                     ],
