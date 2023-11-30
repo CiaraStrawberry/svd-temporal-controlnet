@@ -171,6 +171,8 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
 
         self.sample_size = sample_size
 
+        print("layers per block is", layers_per_block)
+        
         # Check inputs
         if len(down_block_types) != len(up_block_types):
             raise ValueError(
@@ -260,7 +262,8 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 resnet_act_fn="silu",
             )
             self.down_blocks.append(down_block)
-            for _ in range(layers_per_block):
+            
+            for _ in range(layers_per_block[i]):
                 controlnet_block = nn.Conv2d(output_channel, output_channel, kernel_size=1)
                 controlnet_block = zero_module(controlnet_block)
                 self.controlnet_down_blocks.append(controlnet_block)
@@ -272,7 +275,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
 
 
         # mid
-
+        mid_block_channel = block_out_channels[-1]
         controlnet_block = nn.Conv2d(mid_block_channel, mid_block_channel, kernel_size=1)
         controlnet_block = zero_module(controlnet_block)
         self.controlnet_mid_block = controlnet_block
@@ -527,20 +530,9 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         mid_block_res_sample = self.controlnet_mid_block(sample)
 
         # 6. scaling
-        if guess_mode and not self.config.global_pool_conditions:
-            scales = torch.logspace(-1, 0, len(down_block_res_samples) + 1, device=sample.device)  # 0.1 to 1.0
-            scales = scales * conditioning_scale
-            down_block_res_samples = [sample * scale for sample, scale in zip(down_block_res_samples, scales)]
-            mid_block_res_sample = mid_block_res_sample * scales[-1]  # last one
-        else:
-            down_block_res_samples = [sample * conditioning_scale for sample in down_block_res_samples]
-            mid_block_res_sample = mid_block_res_sample * conditioning_scale
 
-        if self.config.global_pool_conditions:
-            down_block_res_samples = [
-                torch.mean(sample, dim=(2, 3), keepdim=True) for sample in down_block_res_samples
-            ]
-            mid_block_res_sample = torch.mean(mid_block_res_sample, dim=(2, 3), keepdim=True)
+        down_block_res_samples = [sample * conditioning_scale for sample in down_block_res_samples]
+        mid_block_res_sample = mid_block_res_sample * conditioning_scale
 
         if not return_dict:
             return (down_block_res_samples, mid_block_res_sample)
