@@ -30,11 +30,8 @@ from diffusers.models.attention_processor import (
 )
 from diffusers.models.embeddings import TextImageProjection, TextImageTimeEmbedding, TextTimeEmbedding, TimestepEmbedding, Timesteps
 from diffusers.models.modeling_utils import ModelMixin
-from diffusers.models.unet_2d_blocks import (
-    CrossAttnDownBlock2D,
-    DownBlock2D,
-    UNetMidBlock2DCrossAttn,
-    get_down_block,
+from diffusers.models.unet_3d_blocks  import (
+    get_down_block, get_up_block,UNetMidBlockSpatioTemporal,
 )
 from diffusers.models import UNetSpatioTemporalConditionModel
 
@@ -598,9 +595,6 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         )
         print(unet.config)
         controlnet = cls(
-            encoder_hid_dim=encoder_hid_dim,
-            encoder_hid_dim_type=encoder_hid_dim_type,
-            addition_embed_type=addition_embed_type,
             in_channels=unet.config.in_channels,
             down_block_types=unet.config.down_block_types,
             block_out_channels=unet.config.block_out_channels,
@@ -612,16 +606,16 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             sample_size=unet.config.sample_size,  # Added based on the dict
             layers_per_block=unet.config.layers_per_block,
             projection_class_embeddings_input_dim=unet.config.projection_class_embeddings_input_dim,
-            controlnet_conditioning_channel_order=controlnet_conditioning_channel_order,
         )
-
+        #controlnet rgb channel order ignored, set to not makea  difference by default
+        
         if load_weights_from_unet:
             controlnet.conv_in.load_state_dict(unet.conv_in.state_dict())
             controlnet.time_proj.load_state_dict(unet.time_proj.state_dict())
             controlnet.time_embedding.load_state_dict(unet.time_embedding.state_dict())
 
-            if controlnet.class_embedding:
-                controlnet.class_embedding.load_state_dict(unet.class_embedding.state_dict())
+           # if controlnet.class_embedding:
+           #     controlnet.class_embedding.load_state_dict(unet.class_embedding.state_dict())
 
             controlnet.down_blocks.load_state_dict(unet.down_blocks.state_dict())
             controlnet.mid_block.load_state_dict(unet.mid_block.state_dict())
@@ -772,9 +766,9 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         for module in self.children():
             fn_recursive_set_attention_slice(module, reversed_slice_size)
 
-    def _set_gradient_checkpointing(self, module, value: bool = False) -> None:
-        if isinstance(module, (CrossAttnDownBlock2D, DownBlock2D)):
-            module.gradient_checkpointing = value
+ #   def _set_gradient_checkpointing(self, module, value: bool = False) -> None:
+ #       if isinstance(module, (CrossAttnDownBlock2D, DownBlock2D)):
+  #          module.gradient_checkpointing = value
 
     
 def zero_module(module):
