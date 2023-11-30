@@ -69,7 +69,7 @@ class WebVid10M(Dataset):
             # Read video frames
             image_files = sorted(os.listdir(preprocessed_dir), key=sort_frames)
             total_frames = len(image_files)
-            if total_frames < 14
+            if total_frames < 14:
                 continue
             clip_length = min(total_frames, (self.sample_n_frames - 1) * self.sample_stride + 1)
             start_idx = random.randint(0, total_frames - clip_length)

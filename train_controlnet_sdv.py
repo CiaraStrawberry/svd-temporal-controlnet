@@ -93,7 +93,7 @@ def encode_image_clip(image, device, dtype,image_encoder):
 
 
 
-def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, accelerator, weight_dtype, step):
+def log_validation(vae, image_encoder, unet, controlnet, args, accelerator, weight_dtype, step):
     logger.info("Running validation... ")
 
     controlnet = accelerator.unwrap_model(controlnet)
@@ -101,8 +101,7 @@ def log_validation(vae, text_encoder, tokenizer, unet, controlnet, args, acceler
     pipeline = StableVideoDiffusionPipelineControlNet.from_pretrained(
         args.pretrained_model_name_or_path,
         vae=vae,
-        text_encoder=text_encoder,
-        tokenizer=tokenizer,
+        image_encoder=image_encoder,
         unet=unet,
         controlnet=controlnet,
         safety_checker=None,
@@ -1002,8 +1001,7 @@ def main(args):
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
                         image_logs = log_validation(
                             vae,
-                            text_encoder,
-                            tokenizer,
+                            image_encoder,
                             unet,
                             controlnet,
                             args,

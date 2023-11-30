@@ -22,12 +22,12 @@ import torch
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 from controlnet_sdv import ControlNetSDVModel
 
-from ...image_processor import VaeImageProcessor
-from ...models import AutoencoderKLTemporalDecoder, UNetSpatioTemporalConditionModel
-from ...schedulers import EulerDiscreteScheduler
-from ...utils import BaseOutput, logging
-from ...utils.torch_utils import randn_tensor
-from ..pipeline_utils import DiffusionPipeline
+from diffusers.image_processor import VaeImageProcessor
+from diffusers.models import AutoencoderKLTemporalDecoder, UNetSpatioTemporalConditionModel
+from diffusers.schedulers import EulerDiscreteScheduler
+from diffusers.utils import BaseOutput, logging
+from diffusers.utils.torch_utils import randn_tensor
+from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
