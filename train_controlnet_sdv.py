@@ -37,12 +37,14 @@ from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
+from torchvision.transforms import ToTensor
+
 
 from controlnet_sdv import ControlNetSDVModel
 import diffusers
 from diffusers import (
-    AutoencoderKL,
     ControlNetModel,
+    AutoencoderKLTemporalDecoder,
     DDPMScheduler,
     StableDiffusionControlNetPipeline,
     UNetSpatioTemporalConditionModel,
@@ -91,6 +93,13 @@ def encode_image_clip(image, device, dtype,image_encoder):
 
     return image_embeddings
 
+def load_images_from_folder(folder):
+    images = []
+    for filename in os.listdir(folder):
+        img = Image.open(os.path.join(folder, filename)).convert('RGB')
+        img_tensor = ToTensor()(img)
+        images.append(img_tensor)
+    return images
 
 
 def log_validation(vae, image_encoder, unet, controlnet, args, accelerator, weight_dtype, step):
@@ -121,29 +130,34 @@ def log_validation(vae, image_encoder, unet, controlnet, args, accelerator, weig
     else:
         generator = torch.Generator(device=accelerator.device).manual_seed(args.seed)
 
-    # Check if the lengths of validation images and control images arrays are equal
-    if len(args.validation_images) != len(args.validation_control_images):
-        raise ValueError("The length of `args.validation_images` and `args.validation_control_images` must be equal.")
 
     image_logs = []
 
-    # Assuming args.validation_prompt is a single prompt for all images
+    validation_images = load_images_from_folder(args.validation_image_folder)
+    validation_control_images = load_images_from_folder(args.validation_control_folder)
+
+    if len(validation_images) != len(validation_control_images):
+        raise ValueError("The number of validation images and control images must be the same")
+
+    image_logs = []
+
+    # Assuming args.validation_prompt is a single prompt for the entire batch
     validation_prompt = args.validation_prompt
 
-    for validation_image, validation_control_image in zip(args.validation_images, args.validation_control_images):
-        images = []
-
-        for _ in range(args.num_validation_images):
-            with torch.autocast("cuda"):
-                image = pipeline(
-                    validation_image, validation_control_image, num_inference_steps=20, generator=generator
-                ).images[0]
-
-            images.append(image)
-
-        image_logs.append(
-            {"validation_image": validation_image, "validation_control_image": validation_control_image, "images": images, "validation_prompt": validation_prompt}
+    # Process the entire batch of images
+    with torch.autocast("cuda"):
+        batch_output = pipeline(
+            validation_images, validation_control_images, num_inference_steps=20, generator=generator
         )
+
+    # Extract and log the images
+    for i in range(len(validation_images)):
+        image_logs.append({
+            "validation_image": validation_images[i],
+            "validation_control_image": validation_control_images[i],
+            "output_image": batch_output.images[i],
+            "validation_prompt": validation_prompt
+        })
   
 
 
@@ -156,42 +170,6 @@ def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: st
     model_class = image_encoder_config.architectures[0]
     return CLIPVisionModelWithProjection
 
-
-def save_model_card(repo_id: str, image_logs=None, base_model=str, repo_folder=None):
-    img_str = ""
-    if image_logs is not None:
-        img_str = "You can find some example images below.\n"
-        for i, log in enumerate(image_logs):
-            images = log["images"]
-            validation_prompt = log["validation_prompt"]
-            validation_image = log["validation_image"]
-            validation_image.save(os.path.join(repo_folder, "image_control.png"))
-            img_str += f"prompt: {validation_prompt}\n"
-            images = [validation_image] + images
-            image_grid(images, 1, len(images)).save(os.path.join(repo_folder, f"images_{i}.png"))
-            img_str += f"![images_{i})](./images_{i}.png)\n"
-
-    yaml = f"""
----
-license: creativeml-openrail-m
-base_model: {base_model}
-tags:
-- stable-diffusion
-- stable-diffusion-diffusers
-- text-to-image
-- diffusers
-- controlnet
-inference: true
----
-    """
-    model_card = f"""
-# controlnet-{repo_id}
-
-These are controlnet weights trained on {base_model} with new type of conditioning.
-{img_str}
-"""
-    with open(os.path.join(repo_folder, "README.md"), "w") as f:
-        f.write(yaml + model_card)
 
 
 def parse_args(input_args=None):
@@ -527,14 +505,6 @@ def parse_args(input_args=None):
     else:
         args = parser.parse_args()
 
-    if args.proportion_empty_prompts < 0 or args.proportion_empty_prompts > 1:
-        raise ValueError("`--proportion_empty_prompts` must be in the range [0, 1].")
-
-    if args.validation_prompt is not None and args.validation_image is None:
-        raise ValueError("`--validation_image` must be set if `--validation_prompt` is set")
-
-    if args.validation_prompt is None and args.validation_image is not None:
-        raise ValueError("`--validation_prompt` must be set if `--validation_image` is set")
 
 
 
@@ -674,7 +644,7 @@ def main(args):
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="image_encoder", revision=args.revision, variant=args.variant
     )
-    vae = AutoencoderKL.from_pretrained(
+    vae = AutoencoderKLTemporalDecoder.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, variant=args.variant
     )
     unet = UNetSpatioTemporalConditionModel.from_pretrained(
