@@ -38,6 +38,8 @@ from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 from torchvision.transforms import ToTensor
+import torchvision.transforms as T
+from einops import rearrange
 
 
 from controlnet_sdv import ControlNetSDVModel
@@ -77,18 +79,23 @@ def image_grid(imgs, rows, cols):
     return grid
 
 
-def encode_image_clip(image, device, dtype,image_encoder):
-
+def encode_image_clip(image, device, dtype, image_encoder):
     num_videos_per_prompt = 1
+
+    # Resize the image to 224x224
+    resize = T.Resize((224, 224))
+    image = resize(image)
 
     image = image.to(device=device, dtype=dtype)
     image_embeddings = image_encoder(image).image_embeds
     image_embeddings = image_embeddings.unsqueeze(1)
 
-    # duplicate image embeddings for each generation per prompt, using mps friendly method
-    bs_embed, seq_len, _ = image_embeddings.shape
-    image_embeddings = image_embeddings.repeat(1, num_videos_per_prompt, 1)
-    image_embeddings = image_embeddings.view(bs_embed * num_videos_per_prompt, seq_len, -1)
+    # Duplicate image embeddings for each generation per prompt, using mps friendly method
+    #bs_embed, seq_len, _ = image_embeddings.shape
+    #image_embeddings = image_embeddings.repeat(1, num_videos_per_prompt, 1)
+    #image_embeddings = image_embeddings.view(bs_embed * num_videos_per_prompt, seq_len, -1)
+
+    return image_embeddings
 
 
     return image_embeddings
@@ -801,14 +808,27 @@ def main(args):
         # Only show the progress bar once on each machine.
         disable=not accelerator.is_local_main_process,
     )
-
+    video_length = 14
+    # you should probably not be hard coding this
     image_logs = None
     for epoch in range(first_epoch, args.num_train_epochs):
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(controlnet):
                 # Convert images to latent space
-                latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.sample()
-                latents = latents * vae.config.scaling_factor
+                print("image shape vae input",batch["pixel_values"].shape)
+
+
+                pixel_values = batch["pixel_values"]e.to(vae.dtype)
+                input_first_image = pixel_values[:, :, 0, :, :]
+                with torch.no_grad():
+
+                    pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
+                    pixel_values = pixel_values.to(vae.dtype)
+                    latents = vae.encode(pixel_values).latent_dist
+                    latents = latents.sample()
+                    latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
+                    latents = latents * vae.config.scaling_factor
+                    first_frame_latents = latents[:, :, 0, :, :]
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
@@ -823,9 +843,6 @@ def main(args):
 
                 #source images
                 controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
-                input_images = batch["pixel_values"].to(dtype=weight_dtype)
-                print(input_images.shape ,"input images shape")
-                first_image_latents =input_images[0]
 
                 #image encoding
                 encoder_hidden_states = encode_image_clip(input_first_image,latents.device,latents.dtype,image_encoder)

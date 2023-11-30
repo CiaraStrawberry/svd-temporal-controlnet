@@ -11,7 +11,18 @@ from torch.utils.data.dataset import Dataset
 from utils.util import zero_rank_print
 #from torchvision.io import read_image
 from PIL import Image
+def pil_image_to_numpy(image):
+    """Convert a PIL image to a NumPy array."""
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+    return np.array(image)
 
+def numpy_to_pt(images: np.ndarray) -> torch.FloatTensor:
+    """Convert a NumPy image to a PyTorch tensor."""
+    if images.ndim == 3:
+        images = images[..., None]
+    images = torch.from_numpy(images.transpose(0, 3, 1, 2))
+    return images.float() / 255
 
 
 class WebVid10M(Dataset):
@@ -50,14 +61,8 @@ class WebVid10M(Dataset):
         top = (h - min_dim) // 2
         left = (w - min_dim) // 2
         return img[..., top:top+min_dim, left:left+min_dim]
-    def pil_image_to_tensor(self,image):
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        """Convert a PIL image to a PyTorch tensor."""
-        return torch.from_numpy(np.array(image)).permute(2, 0, 1).float() / 255.
-
-            
-            
+        
+    
     def get_batch(self, idx):
         def sort_frames(frame_name):
             return int(frame_name.split('_')[1].split('.')[0])
@@ -69,11 +74,10 @@ class WebVid10M(Dataset):
     
             if not os.path.exists(preprocessed_dir):
                 idx = random.randint(0, len(self.dataset) - 1)
-                continue  # try the next index
-            
+                continue
+    
             print(f"run idx = {videoid}")
-            
-            # Read video frames
+    
             image_files = sorted(os.listdir(preprocessed_dir), key=sort_frames)
             total_frames = len(image_files)
             print(total_frames)
@@ -83,21 +87,21 @@ class WebVid10M(Dataset):
             clip_length = min(total_frames, (self.sample_n_frames - 1) * self.sample_stride + 1)
             start_idx = random.randint(0, total_frames - clip_length)
             batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-        
-            # Read images from the directory
-            pixel_values = torch.stack([self.pil_image_to_tensor(Image.open(os.path.join(preprocessed_dir, image_files[int(i)]))) for i in batch_index])
-            
-            # Extract the first frame
-            first_frame = pixel_values[0]
-        
-            # Read depth frames from a different folder
-            depth_folder = os.path.join(self.depth_folder, videoid) 
-            depth_files = sorted(os.listdir(depth_folder), key=sort_frames)[:14]  
-            depth_pixel_values = torch.stack([self.pil_image_to_tensor(Image.open(os.path.join(depth_folder, df))) for df in depth_files])
-            
-            #if self.is_image:
-            #    pixel_values = pixel_values[0]
-            return pixel_values, depth_pixel_values, first_frame
+    
+            # Read and accumulate images in a NumPy array
+            numpy_images = np.array([pil_image_to_numpy(Image.open(os.path.join(preprocessed_dir, image_files[int(i)]))) for i in batch_index])
+    
+            # Convert the NumPy array to a PyTorch tensor
+            pixel_values = numpy_to_pt(numpy_images)
+    
+            # Similarly for depth frames
+            depth_folder = os.path.join(self.depth_folder, videoid)
+            depth_files = sorted(os.listdir(depth_folder), key=sort_frames)[:14]
+            numpy_depth_images = np.array([pil_image_to_numpy(Image.open(os.path.join(depth_folder, df))) for df in depth_files])
+            depth_pixel_values = numpy_to_pt(numpy_depth_images)
+    
+            return pixel_values, depth_pixel_values, pixel_values[0]
+
         
         
     
