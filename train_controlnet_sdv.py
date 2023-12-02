@@ -198,14 +198,18 @@ def save_combined_frames(batch_output, validation_images, validation_control_ima
     filename = f"combined_frames_{timestamp}.png"
     # Create and save the grid image
     grid = create_image_grid(combined_frames, rows, cols)
-    output_loc = os.path.join(output_folder,"validation_images", filename)
-    os.makedirs(output_loc, exist_ok=True)             
+    output_folder = os.path.join(output_folder, "validation_images")
+    os.makedirs(output_folder, exist_ok=True)
+    
+    # Now define the full path for the file
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"combined_frames_{timestamp}.png"
+    output_loc = os.path.join(output_folder, filename)
+    
     if grid is not None:
-        
         grid.save(output_loc)
     else:
         print("Failed to create image grid")
-
 
 def log_validation(vae,scheduler, image_encoder, unet, controlnet, args, accelerator, weight_dtype, step,output_folder):
     logger.info("Running validation... ")
