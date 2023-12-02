@@ -49,10 +49,12 @@ from diffusers import (
     AutoencoderKLTemporalDecoder,
     DDPMScheduler,
     StableDiffusionControlNetPipeline,
-    UNetSpatioTemporalConditionModel,
+ #   UNetSpatioTemporalConditionModel,
     UniPCMultistepScheduler,
     StableVideoDiffusionPipeline,
 )
+
+from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, is_wandb_available
@@ -616,7 +618,7 @@ def main(args):
     vae = AutoencoderKLTemporalDecoder.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, variant=args.variant
     )
-    unet = UNetSpatioTemporalConditionModel.from_pretrained(
+    unet = UNetSpatioTemporalConditionControlNetModel.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision, variant=args.variant
     )
 
