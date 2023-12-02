@@ -4,14 +4,15 @@ accelerate launch train_controlnet_sdv.py \
  --csv_path="/workspace/sdv_controlnet/results_2M_train.csv" \
  --video_folder="/workspace/sdv_controlnet/training_data_demo" \
  --depth_folder="/workspace/sdv_controlnet/training_data_demo" \
- --validation_image_folder="/workspace/sdv_controlnet/validation/depth" \
- --validation_control_folder="/workspace/sdv_controlnet/validation/rgb" \
- --resolution=256 \
+ --validation_image_folder="/workspace/sdv_controlnet/validation_demo/depth" \
+ --validation_control_folder="/workspace/sdv_controlnet/validation_demo/rgb" \
+ --resolution=512 \
  --learning_rate=1e-5 \
  --train_batch_size=1 \
  --num_train_epochs=30 \
  --mixed_precision="fp16" \
  --tracker_project_name="controlnet" \
  --enable_xformers_memory_efficient_attention \
- --checkpointing_steps=5000 \
+ --checkpointing_steps=1 \
+ --validation_steps=1 \
  --report_to wandb

@@ -28,9 +28,34 @@ from diffusers.schedulers import EulerDiscreteScheduler
 from diffusers.utils import BaseOutput, logging
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
+from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+
+def _get_add_time_ids(
+        noise_aug_strength,
+        dtype,
+        batch_size,
+        fps=4,
+        motion_bucket_id=128,
+        unet=None,
+    ):
+        add_time_ids = [fps, motion_bucket_id, noise_aug_strength]
+
+        passed_add_embed_dim = unet.config.addition_time_embed_dim * len(add_time_ids)
+        expected_add_embed_dim = unet.add_embedding.linear_1.in_features
+
+        if expected_add_embed_dim != passed_add_embed_dim:
+            raise ValueError(
+                f"Model expects an added time embedding vector of length {expected_add_embed_dim}, but a vector of {passed_add_embed_dim} was created. The model has an incorrect config. Please check `unet.config.time_embedding_type` and `text_encoder_2.config.projection_dim`."
+            )
+
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+        # add_time_ids = add_time_ids.repeat(batch_size * num_videos_per_prompt, 1)
+
+
+        return add_time_ids
 
 
 def _append_dims(x, target_dims):
@@ -97,7 +122,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         self,
         vae: AutoencoderKLTemporalDecoder,
         image_encoder: CLIPVisionModelWithProjection,
-        unet: UNetSpatioTemporalConditionModel,
+        unet: UNetSpatioTemporalConditionControlNetModel,
         controlnet: ControlNetSDVModel,
         scheduler: EulerDiscreteScheduler,
         feature_extractor: CLIPImageProcessor,
@@ -122,21 +147,8 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
             image = self.image_processor.pil_to_numpy(image)
             image = self.image_processor.numpy_to_pt(image)
 
-            # We normalize the image before resizing to match with the original implementation.
-            # Then we unnormalize it after resizing.
-            image = image * 2.0 - 1.0
-            image = _resize_with_antialiasing(image, (224, 224))
-            image = (image + 1.0) / 2.0
-
-            # Normalize the image with for CLIP input
-            image = self.feature_extractor(
-                images=image,
-                do_normalize=True,
-                do_center_crop=False,
-                do_resize=False,
-                do_rescale=False,
-                return_tensors="pt",
-            ).pixel_values
+        #image = image.unsqueeze(0)
+        image = _resize_with_antialiasing(image, (224, 224))
 
         image = image.to(device=device, dtype=dtype)
         image_embeddings = self.image_encoder(image).image_embeds
@@ -303,6 +315,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
     def __call__(
         self,
         image: Union[PIL.Image.Image, List[PIL.Image.Image], torch.FloatTensor],
+        controlnet_condition:[torch.FloatTensor] = None,
         height: int = 576,
         width: int = 1024,
         num_frames: Optional[int] = None,
@@ -320,7 +333,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         return_dict: bool = True,
-        controlnet_condition:[torch.FloatTensor] = None
+        batch_size=1,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -409,12 +422,12 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         self.check_inputs(image, height, width)
 
         # 2. Define call parameters
-        if isinstance(image, PIL.Image.Image):
-            batch_size = 1
-        elif isinstance(image, list):
-            batch_size = len(image)
-        else:
-            batch_size = image.shape[0]
+        #if isinstance(image, PIL.Image.Image):
+        #    batch_size = 1
+        #elif isinstance(image, list):
+        #    batch_size = len(image)
+        #else:
+        #    batch_size = image.shape[0]
         device = self._execution_device
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
@@ -448,7 +461,8 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         # Repeat the image latents for each frame so we can concatenate them with the noise
         # image_latents [batch, channels, height, width] ->[batch, num_frames, channels, height, width]
         image_latents = image_latents.unsqueeze(1).repeat(1, num_frames, 1, 1, 1)
-
+        #image_latents = torch.cat([image_latents] * 2) if do_classifier_free_guidance else image_latents
+        
         # 5. Get Added Time IDs
         added_time_ids = self._get_add_time_ids(
             fps,
@@ -466,6 +480,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         timesteps = self.scheduler.timesteps
 
         # 5. Prepare latent variables
+ 
         num_channels_latents = self.unet.config.in_channels
         latents = self.prepare_latents(
             batch_size * num_videos_per_prompt,
@@ -478,9 +493,11 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
             generator,
             latents,
         )
-
-        controlnet_condition = controlnet_condition.to(latents.dtype,latents.device)
-
+        #prepare controlnet condition
+        controlnet_condition = self.image_processor.preprocess(controlnet_condition, height=height, width=width)
+        controlnet_condition = controlnet_condition.unsqueeze(0)
+        controlnet_condition = torch.cat([controlnet_condition] * 2) 
+        controlnet_condition = controlnet_condition.to(device, latents.dtype)
         
         # 7. Prepare guidance scale
         guidance_scale = torch.linspace(min_guidance_scale, max_guidance_scale, num_frames).unsqueeze(0)
@@ -490,6 +507,19 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
 
         self._guidance_scale = guidance_scale
 
+        noise_aug_strength = 0.02 #"¯\_(ツ)_/¯
+        added_time_ids = _get_add_time_ids(
+            noise_aug_strength,
+            image_embeddings.dtype,
+            batch_size,
+            6,
+            128,
+            unet=self.unet,
+        )
+        added_time_ids = torch.cat([added_time_ids] * 2) 
+        added_time_ids = added_time_ids.to(latents.device)
+
+        
         # 8. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         self._num_timesteps = len(timesteps)
@@ -501,26 +531,32 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
 
                 # Concatenate image_latents over channels dimention
                 latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
+                
 
+                down_block_res_samples, mid_block_res_sample = self.controlnet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=image_embeddings,
+                    controlnet_cond=controlnet_condition,
+                    added_time_ids=added_time_ids,
+                 #   conditioning_scale=cond_scale,
+                    guess_mode=False,
+                    return_dict=False,
+                )
+
+
+                
                 # predict the noise residual
                 noise_pred = self.unet(
                     latent_model_input,
                     t,
                     encoder_hidden_states=image_embeddings,
+                    down_block_additional_residuals=down_block_res_samples,
+                    mid_block_additional_residual=mid_block_res_sample,
                     added_time_ids=added_time_ids,
                     return_dict=False,
                 )[0]
                 
-                down_block_res_samples, mid_block_res_sample = self.controlnet(
-                    latents,
-                    t,
-                    encoder_hidden_states=controlnet_prompt_embeds,
-                    controlnet_cond=controlnet_condition,
-                    conditioning_scale=cond_scale,
-                    guess_mode=guess_mode,
-                    return_dict=False,
-                )
-
 
 
 
@@ -564,6 +600,10 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
 # resizing utils
 # TODO: clean up later
 def _resize_with_antialiasing(input, size, interpolation="bicubic", align_corners=True):
+    
+    if input.ndim == 3:
+        input = input.unsqueeze(0)  # Add a batch dimension
+        
     h, w = input.shape[-2:]
     factors = (h / size[0], w / size[1])
 

@@ -20,6 +20,7 @@ import os
 import random
 import shutil
 from pathlib import Path
+import datetime
 
 import accelerate
 import numpy as np
@@ -127,17 +128,86 @@ def encode_image_clip(image, device, dtype, image_encoder):
 
 
     return image_embeddings
+    
+def tensor_to_pil(tensor):
+    # Convert a PyTorch tensor to a PIL Image
+    return Image.fromarray(tensor.mul(255).clamp(0, 255).byte().permute(1, 2, 0).cpu().numpy())
 
 def load_images_from_folder(folder):
     images = []
+    valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"}  # Add or remove extensions as needed
+
     for filename in os.listdir(folder):
-        img = Image.open(os.path.join(folder, filename)).convert('RGB')
-        img_tensor = ToTensor()(img)
-        images.append(img_tensor)
+        ext = os.path.splitext(filename)[1].lower()
+        if ext in valid_extensions:
+            img = Image.open(os.path.join(folder, filename)).convert('RGB')
+            images.append(img)
+
     return images
+    
+def validate_and_convert_image(image):
+    if image is None:
+        print("Encountered a None image")
+        return None
+
+    if isinstance(image, torch.Tensor):
+        # Convert PyTorch tensor to PIL Image
+        if image.ndim == 3 and image.shape[0] in [1, 3]:  # Check for CxHxW format
+            if image.shape[0] == 1:  # Convert single-channel grayscale to RGB
+                image = image.repeat(3, 1, 1)
+            image = image.mul(255).clamp(0, 255).byte().permute(1, 2, 0).cpu().numpy()
+        else:
+            print(f"Invalid image tensor shape: {image.shape}")
+            return None
+        image = Image.fromarray(image)
+    elif not isinstance(image, Image.Image):
+        print("Image is not a PIL Image or a PyTorch tensor")
+        return None
+    
+    return image
+
+def create_image_grid(images, rows, cols):
+    valid_images = [validate_and_convert_image(img) for img in images]
+    valid_images = [img for img in valid_images if img is not None]
+
+    if not valid_images:
+        print("No valid images to create a grid")
+        return None
+
+    w, h = valid_images[0].size
+    grid = Image.new('RGB', size=(cols * w, rows * h))
+
+    for i, image in enumerate(valid_images):
+        grid.paste(image, box=((i % cols) * w, (i // cols) * h))
+
+    return grid
+    
+def save_combined_frames(batch_output, validation_images, validation_control_images,output_folder):
+    # Flatten batch_output, which is a list of lists of PIL Images
+    flattened_batch_output = [img for sublist in batch_output for img in sublist]
+
+    # Combine frames into a list without converting (since they are already PIL Images)
+    combined_frames = validation_images + validation_control_images + flattened_batch_output
+
+    # Calculate rows and columns for the grid
+    num_images = len(combined_frames)
+    cols = 3  # adjust number of columns as needed
+    rows = (num_images + cols - 1) // cols
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    filename = f"combined_frames_{timestamp}.png"
+    # Create and save the grid image
+    grid = create_image_grid(combined_frames, rows, cols)
+    output_loc = os.path.join(output_folder,"validation_images", filename)
+    os.makedirs(output_loc, exist_ok=True)             
+    if grid is not None:
+        
+        grid.save(output_loc)
+    else:
+        print("Failed to create image grid")
 
 
-def log_validation(vae, image_encoder, unet, controlnet, args, accelerator, weight_dtype, step):
+def log_validation(vae,scheduler, image_encoder, unet, controlnet, args, accelerator, weight_dtype, step,output_folder):
     logger.info("Running validation... ")
 
     controlnet = accelerator.unwrap_model(controlnet)
@@ -153,7 +223,7 @@ def log_validation(vae, image_encoder, unet, controlnet, args, accelerator, weig
         variant=args.variant,
         torch_dtype=weight_dtype,
     )
-    pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
+    #pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
     pipeline = pipeline.to(accelerator.device)
     pipeline.set_progress_bar_config(disable=True)
 
@@ -167,7 +237,7 @@ def log_validation(vae, image_encoder, unet, controlnet, args, accelerator, weig
 
 
     image_logs = []
-
+    print(args.validation_image_folder,args.validation_control_folder)
     validation_images = load_images_from_folder(args.validation_image_folder)
     validation_control_images = load_images_from_folder(args.validation_control_folder)
 
@@ -182,17 +252,11 @@ def log_validation(vae, image_encoder, unet, controlnet, args, accelerator, weig
     # Process the entire batch of images
     with torch.autocast("cuda"):
         batch_output = pipeline(
-            validation_images, validation_control_images, num_inference_steps=20, generator=generator
+            validation_images[0], validation_control_images, num_inference_steps=20, generator=generator,width=512,height=512,batch_size=1
         )
+    print(batch_output.frames)
+    save_combined_frames(batch_output.frames, validation_images, validation_control_images,output_folder)
 
-    # Extract and log the images
-    for i in range(len(validation_images)):
-        image_logs.append({
-            "validation_image": validation_images[i],
-            "validation_control_image": validation_control_images[i],
-            "output_image": batch_output.images[i],
-            "validation_prompt": validation_prompt
-        })
   
 
 
@@ -476,7 +540,6 @@ def parse_args(input_args=None):
         "--validation_prompt",
         type=str,
         default=None,
-        nargs="+",
         help=(
             "A set of prompts evaluated every `--validation_steps` and logged to `--report_to`."
             " Provide either a matching number of `--validation_image`s, a single `--validation_image`"
@@ -487,7 +550,6 @@ def parse_args(input_args=None):
         "--validation_image_folder",
         type=str,
         default=None,
-        nargs="+",
         help=(
             "A set of paths to the controlnet conditioning image be evaluated every `--validation_steps`"
             " and logged to `--report_to`. Provide either a matching number of `--validation_prompt`s, a"
@@ -499,7 +561,6 @@ def parse_args(input_args=None):
         "--validation_control_folder",
         type=str,
         default=None,
-        nargs="+",
         help=(
             "the validation control image"
         ),
@@ -843,7 +904,6 @@ def main(args):
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(controlnet):
                 # Convert images to latent space
-                print("image shape vae input",batch["pixel_values"].shape)
 
 
                 pixel_values = batch["pixel_values"].to(vae.dtype)
@@ -873,7 +933,6 @@ def main(args):
                 controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
 
                 #image encoding
-                print("encoding input shape",input_first_image.shape)
                 encoder_hidden_states = encode_image_clip(input_first_image,latents.device,latents.dtype,image_encoder)
 
                 #time embedding,  
@@ -887,13 +946,14 @@ def main(args):
                     unet=unet,
                 )
                 added_time_ids = added_time_ids.to(latents.device)
-            
+
 
                 repeated_first_frames = first_frame_latents.unsqueeze(2).repeat(1, 1, 14, 1, 1)
 
                 latent_model_input = torch.cat([noisy_latents, repeated_first_frames], dim=1)
                 latent_model_input = rearrange(latent_model_input,"b c f h w -> b f c h w")
-                print(latent_model_input.shape ,"latent model input shape")
+                # kinda weird it's not b c f hw
+                
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,
                     timesteps,
@@ -919,12 +979,8 @@ def main(args):
                 ).sample
 
                 # Get the target for loss depending on the prediction type
-                if noise_scheduler.config.prediction_type == "epsilon":
-                    target = noise
-                elif noise_scheduler.config.prediction_type == "v_prediction":
-                    target = noise_scheduler.get_velocity(latents, noise, timesteps)
-                else:
-                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+                target = noise
+                target = rearrange(target,"b c f h w -> b f c h w")
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
                 accelerator.backward(loss)
@@ -966,9 +1022,10 @@ def main(args):
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-                    if args.validation_prompt is not None and global_step % args.validation_steps == 0:
+                    if global_step % args.validation_steps == 0:
                         image_logs = log_validation(
                             vae,
+                            noise_scheduler,
                             image_encoder,
                             unet,
                             controlnet,
@@ -976,6 +1033,7 @@ def main(args):
                             accelerator,
                             weight_dtype,
                             global_step,
+                            args.output_dir,
                         )
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
