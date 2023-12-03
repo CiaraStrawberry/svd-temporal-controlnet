@@ -102,7 +102,7 @@ def _get_add_time_ids(
             )
 
         add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
-       # add_time_ids = add_time_ids.repeat(batch_size * num_videos_per_prompt, 1)
+        add_time_ids = add_time_ids.repeat(batch_size, 1)
 
 
         return add_time_ids
@@ -960,7 +960,8 @@ def main(args):
                 latent_model_input = torch.cat([noisy_latents, repeated_first_frames], dim=1)
                 latent_model_input = rearrange(latent_model_input,"b c f h w -> b f c h w")
                 # kinda weird it's not b c f hw
-                
+
+                print("controlnet shape check",latent_model_input.shape,encoder_hidden_states.shape,added_time_ids.shape,controlnet_image.shape)
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,
                     timesteps,
