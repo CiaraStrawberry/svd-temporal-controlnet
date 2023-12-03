@@ -1,18 +1,19 @@
 accelerate launch train_controlnet_sdv.py \
  --pretrained_model_name_or_path="stabilityai/stable-video-diffusion-img2vid" \
  --output_dir="model_out" \
- --csv_path="/workspace/sdv_controlnet/results_2M_train.csv" \
- --video_folder="/workspace/sdv_controlnet/training_data_demo" \
- --depth_folder="/workspace/sdv_controlnet/training_data_demo" \
- --validation_image_folder="/workspace/sdv_controlnet/validation_demo/rgb" \
- --validation_control_folder="/workspace/sdv_controlnet/validation_demo/depth" \
+ --csv_path="/home/holo/sdv_controlnet/results_2M_train.csv" \
+ --video_folder="/data/webvid/webvid/preprocessed_videos" \
+ --depth_folder="/data/webvid/webvid/depth_maps" \
+ --validation_image_folder="/home/holo/sdv_controlnet/validation_demo/rgb" \
+ --validation_control_folder="/home/holo//sdv_controlnet/validation_demo/depth" \
  --resolution=512 \
- --learning_rate=1e-5 \
- --train_batch_size=1 \
- --num_train_epochs=30 \
+ --learning_rate=3e-6 \
+ --train_batch_size=6 \
+ --num_train_epochs=10 \
  --mixed_precision="fp16" \
  --tracker_project_name="controlnet" \
  --enable_xformers_memory_efficient_attention \
- --checkpointing_steps=1 \
- --validation_steps=1 \
- --report_to wandb
+ --checkpointing_steps=1000 \
+ --validation_steps=300 \
+ --report_to wandb \
+ --resume_from_checkpoint="/home/holo/sdv_controlnet/model_out/checkpoint-10000-worked" 

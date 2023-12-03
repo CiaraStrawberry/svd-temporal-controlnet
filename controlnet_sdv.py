@@ -76,6 +76,8 @@ class ControlNetConditioningEmbedding(nn.Module):
     ):
         super().__init__()
 
+
+        
         self.conv_in = nn.Conv2d(conditioning_channels, block_out_channels[0], kernel_size=3, padding=1)
 
         self.blocks = nn.ModuleList([])
@@ -83,7 +85,7 @@ class ControlNetConditioningEmbedding(nn.Module):
         for i in range(len(block_out_channels) - 1):
             channel_in = block_out_channels[i]
             channel_out = block_out_channels[i + 1]
-            self.blocks.append(nn.Convd(channel_in, channel_in, kernel_size=3, padding=1))
+            self.blocks.append(nn.Conv2d(channel_in, channel_in, kernel_size=3, padding=1))
             self.blocks.append(nn.Conv2d(channel_in, channel_out, kernel_size=3, padding=1, stride=2))
 
         self.conv_out = zero_module(
@@ -91,6 +93,11 @@ class ControlNetConditioningEmbedding(nn.Module):
         )
 
     def forward(self, conditioning):
+        #this seeems appropriate? idk if i should be applying a more complex setup to handle the frames
+        #combine batch and frames dimensions
+        batch_size, frames, channels, height, width = conditioning.size()
+        conditioning = conditioning.view(batch_size * frames, channels, height, width)
+
         embedding = self.conv_in(conditioning)
         embedding = F.silu(embedding)
 
@@ -99,6 +106,11 @@ class ControlNetConditioningEmbedding(nn.Module):
             embedding = F.silu(embedding)
 
         embedding = self.conv_out(embedding)
+        
+        #split them apart again
+        new_channels, new_height, new_width = embedding.shape[1], embedding.shape[2], embedding.shape[3]
+        embedding = embedding.view(batch_size, frames, new_channels, new_height, new_width)
+
 
         return embedding
 
@@ -166,9 +178,10 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         transformer_layers_per_block: Union[int, Tuple[int], Tuple[Tuple]] = 1,
         num_attention_heads: Union[int, Tuple[int]] = (5, 10, 10, 20),
         num_frames: int = 25,
+        conditioning_channels: int = 3,
+        conditioning_embedding_out_channels : Optional[Tuple[int, ...]] = (16, 32, 96, 256),
     ):
         super().__init__()
-
         self.sample_size = sample_size
 
         print("layers per block is", layers_per_block)
@@ -234,6 +247,11 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             transformer_layers_per_block = [transformer_layers_per_block] * len(down_block_types)
 
         blocks_time_embed_dim = time_embed_dim
+        self.controlnet_cond_embedding = ControlNetConditioningEmbedding(
+            conditioning_embedding_channels=block_out_channels[0],
+            block_out_channels=conditioning_embedding_out_channels,
+            conditioning_channels=conditioning_channels,
+        )
 
         # down
         output_channel = block_out_channels[0]
@@ -489,6 +507,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         encoder_hidden_states = encoder_hidden_states.repeat_interleave(num_frames, dim=0)
 
         # 2. pre-process
+        controlnet_cond = self.controlnet_cond_embedding(controlnet_cond)
         sample = self.conv_in(sample)
 
         image_only_indicator = torch.zeros(batch_size, num_frames, dtype=sample.dtype, device=sample.device)
@@ -549,6 +568,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         controlnet_conditioning_channel_order: str = "rgb",
         conditioning_embedding_out_channels: Optional[Tuple[int, ...]] = (16, 32, 96, 256),
         load_weights_from_unet: bool = True,
+        conditioning_channels: int = 3,
     ):
         r"""
         Instantiate a [`ControlNetModel`] from [`UNet2DConditionModel`].
@@ -558,6 +578,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 The UNet model weights to copy to the [`ControlNetModel`]. All configuration options are also copied
                 where applicable.
         """
+
         transformer_layers_per_block = (
             unet.config.transformer_layers_per_block if "transformer_layers_per_block" in unet.config else 1
         )
@@ -580,6 +601,8 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             sample_size=unet.config.sample_size,  # Added based on the dict
             layers_per_block=unet.config.layers_per_block,
             projection_class_embeddings_input_dim=unet.config.projection_class_embeddings_input_dim,
+            conditioning_channels = conditioning_channels,
+            conditioning_embedding_out_channels = conditioning_embedding_out_channels,
         )
         #controlnet rgb channel order ignored, set to not makea  difference by default
         
