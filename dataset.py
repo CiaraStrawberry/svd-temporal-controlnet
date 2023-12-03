@@ -76,11 +76,10 @@ class WebVid10M(Dataset):
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue
     
-            print(f"run idx = {videoid}")
     
             image_files = sorted(os.listdir(preprocessed_dir), key=sort_frames)
             total_frames = len(image_files)
-            print(total_frames)
+
             if total_frames < 14:
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue
@@ -93,10 +92,16 @@ class WebVid10M(Dataset):
     
             # Convert the NumPy array to a PyTorch tensor
             pixel_values = numpy_to_pt(numpy_images)
-    
+            
             # Similarly for depth frames
             #depth_folder = os.path.join(self.depth_folder, videoid)
             depth_files = sorted(os.listdir(depth_folder), key=sort_frames)[:14]
+            
+            if len(depth_files) < len(batch_index):
+                # If there are not enough depth frames, select a new index or raise an error
+                idx = random.randint(0, len(self.dataset) - 1)
+                continue
+
             numpy_depth_images = np.array([pil_image_to_numpy(Image.open(os.path.join(depth_folder, df))) for df in depth_files])
             depth_pixel_values = numpy_to_pt(numpy_depth_images)
     

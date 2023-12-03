@@ -137,7 +137,21 @@ def load_images_from_folder(folder):
     images = []
     valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"}  # Add or remove extensions as needed
 
-    for filename in os.listdir(folder):
+    # Function to extract frame number from the filename
+    def frame_number(filename):
+        parts = filename.split('_')
+        if len(parts) > 1 and parts[0] == 'frame':
+            try:
+                return int(parts[1].split('.')[0])  # Extracting the number part
+            except ValueError:
+                return float('inf')  # In case of non-integer part, place this file at the end
+        return float('inf')  # Non-frame files are placed at the end
+
+    # Sorting files based on frame number
+    sorted_files = sorted(os.listdir(folder), key=frame_number)
+
+    # Load images in sorted order
+    for filename in sorted_files:
         ext = os.path.splitext(filename)[1].lower()
         if ext in valid_extensions:
             img = Image.open(os.path.join(folder, filename)).convert('RGB')
@@ -162,7 +176,7 @@ def validate_and_convert_image(image, target_size=(256, 256)):
             return None
     elif isinstance(image, Image.Image):
         # Resize PIL Image
-        image = image.resize(target_size, Image.ANTIALIAS)
+        image = image.resize(target_size)
     else:
         print("Image is not a PIL Image or a PyTorch tensor")
         return None
@@ -888,10 +902,10 @@ def main(args):
             args.resume_from_checkpoint = None
             initial_global_step = 0
         else:
-            accelerator.print(f"Resuming from checkpoint {path}")
+            
             accelerator.load_state(os.path.join(args.output_dir, path))
             global_step = int(path.split("-")[1])
-
+            accelerator.print(f"Resuming from checkpoint {os.path.join(args.output_dir, path)}")
             initial_global_step = global_step
             first_epoch = global_step // num_update_steps_per_epoch
     else:
@@ -961,7 +975,6 @@ def main(args):
                 latent_model_input = rearrange(latent_model_input,"b c f h w -> b f c h w")
                 # kinda weird it's not b c f hw
 
-                print("controlnet shape check",latent_model_input.shape,encoder_hidden_states.shape,added_time_ids.shape,controlnet_image.shape)
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,
                     timesteps,
