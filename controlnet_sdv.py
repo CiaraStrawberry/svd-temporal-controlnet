@@ -58,7 +58,7 @@ class ControlNetOutput(BaseOutput):
     mid_block_res_sample: torch.Tensor
 
 
-class ControlNetConditioningEmbedding(nn.Module):
+class ControlNetConditioningEmbeddingSVD(nn.Module):
     """
     Quoting from https://arxiv.org/abs/2302.05543: "Stable Diffusion uses a pre-processing method similar to VQ-GAN
     [11] to convert the entire dataset of 512 × 512 images into smaller 64 × 64 “latent images” for stabilized
@@ -108,8 +108,9 @@ class ControlNetConditioningEmbedding(nn.Module):
         embedding = self.conv_out(embedding)
         
         #split them apart again
-        new_channels, new_height, new_width = embedding.shape[1], embedding.shape[2], embedding.shape[3]
-        embedding = embedding.view(batch_size, frames, new_channels, new_height, new_width)
+        #actually not needed
+        #new_channels, new_height, new_width = embedding.shape[1], embedding.shape[2], embedding.shape[3]
+        #embedding = embedding.view(batch_size, frames, new_channels, new_height, new_width)
 
 
         return embedding
@@ -247,7 +248,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             transformer_layers_per_block = [transformer_layers_per_block] * len(down_block_types)
 
         blocks_time_embed_dim = time_embed_dim
-        self.controlnet_cond_embedding = ControlNetConditioningEmbedding(
+        self.controlnet_cond_embedding = ControlNetConditioningEmbeddingSVD(
             conditioning_embedding_channels=block_out_channels[0],
             block_out_channels=conditioning_embedding_out_channels,
             conditioning_channels=conditioning_channels,
@@ -507,8 +508,12 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         encoder_hidden_states = encoder_hidden_states.repeat_interleave(num_frames, dim=0)
 
         # 2. pre-process
-        controlnet_cond = self.controlnet_cond_embedding(controlnet_cond)
         sample = self.conv_in(sample)
+        
+        #controlnet cond
+        controlnet_cond = self.controlnet_cond_embedding(controlnet_cond)
+        sample = sample + controlnet_cond
+        
 
         image_only_indicator = torch.zeros(batch_size, num_frames, dtype=sample.dtype, device=sample.device)
 

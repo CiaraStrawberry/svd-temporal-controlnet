@@ -258,7 +258,6 @@ def log_validation(vae,scheduler, image_encoder, unet, controlnet, args, acceler
 
 
     image_logs = []
-    print(args.validation_image_folder,args.validation_control_folder)
     validation_images = load_images_from_folder(args.validation_image_folder)
     validation_control_images = load_images_from_folder(args.validation_control_folder)
 
@@ -269,13 +268,11 @@ def log_validation(vae,scheduler, image_encoder, unet, controlnet, args, acceler
 
     # Assuming args.validation_prompt is a single prompt for the entire batch
     validation_prompt = args.validation_prompt
-
     # Process the entire batch of images
     with torch.autocast("cuda"):
         batch_output = pipeline(
-            validation_images[0], validation_control_images, num_inference_steps=20, generator=generator,width=512,height=512,batch_size=1
+            validation_images[0], validation_control_images[:14], num_inference_steps=20, generator=generator,width=512,height=512,batch_size=1
         )
-    print(batch_output.frames)
     save_combined_frames(batch_output.frames, validation_images, validation_control_images,output_folder)
 
   
@@ -950,7 +947,7 @@ def main(args):
                 # (this is the forward diffusion process)
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                #source images
+                #controlnet images
                 controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
 
                 #image encoding
@@ -1043,7 +1040,7 @@ def main(args):
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-                    if global_step % args.validation_steps == 0:
+                    if global_step % args.validation_steps == 0 or global_step == 1: 
                         image_logs = log_validation(
                             vae,
                             noise_scheduler,
