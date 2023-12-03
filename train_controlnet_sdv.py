@@ -48,7 +48,7 @@ import diffusers
 from diffusers import (
     ControlNetModel,
     AutoencoderKLTemporalDecoder,
-    DDPMScheduler,
+    EulerDiscreteScheduler,
     StableDiffusionControlNetPipeline,
  #   UNetSpatioTemporalConditionModel,
     UniPCMultistepScheduler,
@@ -244,7 +244,7 @@ def log_validation(vae,scheduler, image_encoder, unet, controlnet, args, acceler
         variant=args.variant,
         torch_dtype=weight_dtype,
     )
-    #pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
+    pipeline.scheduler = scheduler
     pipeline = pipeline.to(accelerator.device)
     pipeline.set_progress_bar_config(disable=True)
 
@@ -690,7 +690,7 @@ def main(args):
             ).repo_id
 
     # Load scheduler and models
-    noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    noise_scheduler = EulerDiscreteScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="image_encoder", revision=args.revision, variant=args.variant
     )
@@ -939,13 +939,14 @@ def main(args):
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
                 bsz = latents.shape[0]
+                
                 # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
-                timesteps = timesteps.long()
-
-                # Add noise to the latents according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
-                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+                #timesteps = #torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
+                
+                random_indices = torch.randint(0, len(noise_scheduler.timesteps), (bsz,))
+                timesteps = noise_scheduler.timesteps[random_indices].to(device=latents.device)
+                #print(timesteps)
+                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps).to("cuda")
 
                 #controlnet images
                 controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
