@@ -71,8 +71,8 @@ class WebVid10M(Dataset):
             video_dict = self.dataset[idx]
             videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
             preprocessed_dir = os.path.join(self.video_folder, videoid)
-    
-            if not os.path.exists(preprocessed_dir):
+            depth_folder = os.path.join(self.depth_folder, videoid)
+            if not os.path.exists(depth_folder):
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue
     
@@ -95,7 +95,7 @@ class WebVid10M(Dataset):
             pixel_values = numpy_to_pt(numpy_images)
     
             # Similarly for depth frames
-            depth_folder = os.path.join(self.depth_folder, videoid)
+            #depth_folder = os.path.join(self.depth_folder, videoid)
             depth_files = sorted(os.listdir(depth_folder), key=sort_frames)[:14]
             numpy_depth_images = np.array([pil_image_to_numpy(Image.open(os.path.join(depth_folder, df))) for df in depth_files])
             depth_pixel_values = numpy_to_pt(numpy_depth_images)

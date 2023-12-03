@@ -145,7 +145,7 @@ def load_images_from_folder(folder):
 
     return images
     
-def validate_and_convert_image(image):
+def validate_and_convert_image(image, target_size=(256, 256)):
     if image is None:
         print("Encountered a None image")
         return None
@@ -156,25 +156,28 @@ def validate_and_convert_image(image):
             if image.shape[0] == 1:  # Convert single-channel grayscale to RGB
                 image = image.repeat(3, 1, 1)
             image = image.mul(255).clamp(0, 255).byte().permute(1, 2, 0).cpu().numpy()
+            image = Image.fromarray(image)
         else:
             print(f"Invalid image tensor shape: {image.shape}")
             return None
-        image = Image.fromarray(image)
-    elif not isinstance(image, Image.Image):
+    elif isinstance(image, Image.Image):
+        # Resize PIL Image
+        image = image.resize(target_size, Image.ANTIALIAS)
+    else:
         print("Image is not a PIL Image or a PyTorch tensor")
         return None
     
     return image
 
-def create_image_grid(images, rows, cols):
-    valid_images = [validate_and_convert_image(img) for img in images]
+def create_image_grid(images, rows, cols, target_size=(256, 256)):
+    valid_images = [validate_and_convert_image(img, target_size) for img in images]
     valid_images = [img for img in valid_images if img is not None]
 
     if not valid_images:
         print("No valid images to create a grid")
         return None
 
-    w, h = valid_images[0].size
+    w, h = target_size
     grid = Image.new('RGB', size=(cols * w, rows * h))
 
     for i, image in enumerate(valid_images):
