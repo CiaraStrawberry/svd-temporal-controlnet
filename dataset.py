@@ -72,40 +72,29 @@ class WebVid10M(Dataset):
             videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
             preprocessed_dir = os.path.join(self.video_folder, videoid)
             depth_folder = os.path.join(self.depth_folder, videoid)
+    
             if not os.path.exists(depth_folder):
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue
     
-    
-            image_files = sorted(os.listdir(preprocessed_dir), key=sort_frames)
-            total_frames = len(image_files)
-
-            if total_frames < 14:
-                idx = random.randint(0, len(self.dataset) - 1)
-                continue
-            clip_length = min(total_frames, (self.sample_n_frames - 1) * self.sample_stride + 1)
-            start_idx = random.randint(0, total_frames - clip_length)
-            batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-    
-            # Read and accumulate images in a NumPy array
-            numpy_images = np.array([pil_image_to_numpy(Image.open(os.path.join(preprocessed_dir, image_files[int(i)]))) for i in batch_index])
-    
-            # Convert the NumPy array to a PyTorch tensor
-            pixel_values = numpy_to_pt(numpy_images)
-            
-            # Similarly for depth frames
-            #depth_folder = os.path.join(self.depth_folder, videoid)
+            # Sort and limit the number of image and depth files to 14
+            image_files = sorted(os.listdir(preprocessed_dir), key=sort_frames)[:14]
             depth_files = sorted(os.listdir(depth_folder), key=sort_frames)[:14]
-            
-            if len(depth_files) < len(batch_index):
-                # If there are not enough depth frames, select a new index or raise an error
+    
+            # Check if there are enough frames for both image and depth
+            if len(image_files) < 14 or len(depth_files) < 14:
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue
-
+    
+            # Load image frames
+            numpy_images = np.array([pil_image_to_numpy(Image.open(os.path.join(preprocessed_dir, img))) for img in image_files])
+            pixel_values = numpy_to_pt(numpy_images)
+    
+            # Load depth frames
             numpy_depth_images = np.array([pil_image_to_numpy(Image.open(os.path.join(depth_folder, df))) for df in depth_files])
             depth_pixel_values = numpy_to_pt(numpy_depth_images)
     
-            return pixel_values, depth_pixel_values, pixel_values[0]
+            return pixel_values, depth_pixel_values
 
         
         
@@ -117,7 +106,7 @@ class WebVid10M(Dataset):
         
         #while True:
            # try:
-        pixel_values, depth_pixel_values,first_frame = self.get_batch(idx)
+        pixel_values, depth_pixel_values = self.get_batch(idx)
            #     break
           #  except Exception as e:
           #      print(e)

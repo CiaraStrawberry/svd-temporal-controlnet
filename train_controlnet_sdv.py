@@ -933,8 +933,9 @@ def main(args):
                     latents = vae.encode(pixel_values).latent_dist
                     latents = latents.mode()
                     latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
-                    latents = latents * vae.config.scaling_factor
+                    #DONT SCALE THE INPUT IMAGE
                     first_frame_latents = latents[:, :, 0, :, :]
+                    latents = latents * vae.config.scaling_factor
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
