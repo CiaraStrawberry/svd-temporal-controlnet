@@ -54,6 +54,7 @@ from diffusers import (
     UniPCMultistepScheduler,
     StableVideoDiffusionPipeline,
 )
+from diffusers.utils.torch_utils import randn_tensor
 
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
@@ -923,9 +924,14 @@ def main(args):
             with accelerator.accumulate(controlnet):
                 # Convert images to latent space
 
-
                 pixel_values = batch["pixel_values"].to(vae.dtype)
                 input_first_image = pixel_values[:, 0, :, :, :]
+                
+                # Sample noise that we'll add to the latents
+                img_noise = randn_tensor(input_first_image.shape, device=input_first_image.device, dtype=input_first_image.dtype)
+                noise_aug_strength = 0.02 #"¯\_(ツ)_/¯
+                input_first_image = input_first_image + noise_aug_strength * img_noise
+                
                 with torch.no_grad():
 
                     pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
@@ -934,16 +940,19 @@ def main(args):
                     latents = latents.mode()
                     latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
                     #DONT SCALE THE INPUT IMAGE
-                    first_frame_latents = latents[:, :, 0, :, :]
+                    first_frame_latents = vae.encode(input_first_image).latent_dist.mode()
                     latents = latents * vae.config.scaling_factor
 
-                # Sample noise that we'll add to the latents
-                noise = torch.randn_like(latents)
+                #image encoding
+                encoder_hidden_states = encode_image_clip(input_first_image,latents.device,latents.dtype,image_encoder)
+                
+        
+
                 bsz = latents.shape[0]
                 
                 # Sample a random timestep for each image
                 #timesteps = #torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
-                
+                noise = torch.randn_like(latents)
                 random_indices = torch.randint(0, len(noise_scheduler.timesteps), (bsz,))
                 timesteps = noise_scheduler.timesteps[random_indices].to(device=latents.device)
                 #print(timesteps)
@@ -952,11 +961,8 @@ def main(args):
                 #controlnet images
                 controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
 
-                #image encoding
-                encoder_hidden_states = encode_image_clip(input_first_image,latents.device,latents.dtype,image_encoder)
 
                 #time embedding,  
-                noise_aug_strength = 0.02 #"¯\_(ツ)_/¯
                 added_time_ids = _get_add_time_ids(
                     noise_aug_strength,
                     encoder_hidden_states.dtype,
