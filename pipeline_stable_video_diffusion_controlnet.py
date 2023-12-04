@@ -24,11 +24,11 @@ from controlnet_sdv import ControlNetSDVModel
 
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.models import AutoencoderKLTemporalDecoder, UNetSpatioTemporalConditionModel
-from diffusers.schedulers import EulerDiscreteScheduler
 from diffusers.utils import BaseOutput, logging
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
+from scheduling_euler_discrete_training import EulerDiscreteSchedulerTraining
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -124,7 +124,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         image_encoder: CLIPVisionModelWithProjection,
         unet: UNetSpatioTemporalConditionControlNetModel,
         controlnet: ControlNetSDVModel,
-        scheduler: EulerDiscreteScheduler,
+        scheduler: EulerDiscreteSchedulerTraining,
         feature_extractor: CLIPImageProcessor,
     ):
         super().__init__()
