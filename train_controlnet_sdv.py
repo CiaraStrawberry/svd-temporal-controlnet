@@ -41,15 +41,14 @@ from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 from torchvision.transforms import ToTensor
 import torchvision.transforms as T
 from einops import rearrange
-
-
+from scheduling_euler_discrete_training import EulerDiscreteSchedulerTraining
 from controlnet_sdv import ControlNetSDVModel
 import diffusers
 from diffusers import (
     ControlNetModel,
     AutoencoderKLTemporalDecoder,
-    EulerDiscreteScheduler,
     StableDiffusionControlNetPipeline,
+    DDPMScheduler,
  #   UNetSpatioTemporalConditionModel,
     UniPCMultistepScheduler,
     StableVideoDiffusionPipeline,
@@ -245,7 +244,8 @@ def log_validation(vae,scheduler, image_encoder, unet, controlnet, args, acceler
         variant=args.variant,
         torch_dtype=weight_dtype,
     )
-    pipeline.scheduler = scheduler
+    pipeline.scheduler = EulerDiscreteSchedulerTraining.from_config(pipeline.scheduler.config)
+
     pipeline = pipeline.to(accelerator.device)
     pipeline.set_progress_bar_config(disable=True)
 
@@ -691,7 +691,8 @@ def main(args):
             ).repo_id
 
     # Load scheduler and models
-    noise_scheduler = EulerDiscreteScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    print("noise type",noise_scheduler.config.prediction_type)
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="image_encoder", revision=args.revision, variant=args.variant
     )
@@ -930,7 +931,7 @@ def main(args):
                 # Sample noise that we'll add to the latents
                 img_noise = randn_tensor(input_first_image.shape, device=input_first_image.device, dtype=input_first_image.dtype)
                 noise_aug_strength = 0.02 #"¯\_(ツ)_/¯
-                input_first_image = input_first_image + noise_aug_strength * img_noise
+                input_first_image_scaled = input_first_image + noise_aug_strength * img_noise
                 
                 with torch.no_grad():
 
@@ -940,7 +941,7 @@ def main(args):
                     latents = latents.mode()
                     latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
                     #DONT SCALE THE INPUT IMAGE
-                    first_frame_latents = vae.encode(input_first_image).latent_dist.mode()
+                    first_frame_latents = vae.encode(input_first_image_scaled).latent_dist.mode()
                     latents = latents * vae.config.scaling_factor
 
                 #image encoding
@@ -951,11 +952,8 @@ def main(args):
                 bsz = latents.shape[0]
                 
                 # Sample a random timestep for each image
-                #timesteps = #torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
                 noise = torch.randn_like(latents)
-                random_indices = torch.randint(0, len(noise_scheduler.timesteps), (bsz,))
-                timesteps = noise_scheduler.timesteps[random_indices].to(device=latents.device)
-                #print(timesteps)
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device).long()
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps).to("cuda")
 
                 #controlnet images
@@ -1005,7 +1003,8 @@ def main(args):
                 ).sample
 
                 # Get the target for loss depending on the prediction type
-                target = noise
+                print(latents.shape,noise.shape)
+                
                 target = rearrange(target,"b c f h w -> b f c h w")
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
