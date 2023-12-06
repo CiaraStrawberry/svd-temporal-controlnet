@@ -692,7 +692,7 @@ def main(args):
 
     # Load scheduler and models
     noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
-    print("noise type",noise_scheduler.config.prediction_type)
+    print("noise scheduler ",noise_scheduler.config)
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="image_encoder", revision=args.revision, variant=args.variant
     )
@@ -1003,9 +1003,11 @@ def main(args):
                 ).sample
 
                 # Get the target for loss depending on the prediction type
-                print(latents.shape,noise.shape)
+                #latents = rearrange(latent_model_input,"b f c h w -> b c f h w")
                 
-                target = rearrange(target,"b c f h w -> b f c h w")
+                noise = rearrange(noise,"b c f h w -> b f c h w")
+                latents = rearrange(latents,"b c f h w -> b f c h w")
+                target = noise_scheduler.get_velocity(latents, noise, timesteps)
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
                 accelerator.backward(loss)
