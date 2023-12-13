@@ -48,11 +48,12 @@ from diffusers import (
     ControlNetModel,
     AutoencoderKLTemporalDecoder,
     StableDiffusionControlNetPipeline,
-    DDPMScheduler,
+   # DDPMScheduler,
  #   UNetSpatioTemporalConditionModel,
     UniPCMultistepScheduler,
     StableVideoDiffusionPipeline,
 )
+#from scheduling_ddim_test import DDIMScheduler
 from diffusers.utils.torch_utils import randn_tensor
 
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
@@ -691,8 +692,9 @@ def main(args):
             ).repo_id
 
     # Load scheduler and models
-    noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    noise_scheduler = EulerDiscreteSchedulerTraining.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
     print("noise scheduler ",noise_scheduler.config)
+    print("sigmas test",noise_scheduler.sigmas[0])
     image_encoder = CLIPVisionModelWithProjection.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="image_encoder", revision=args.revision, variant=args.variant
     )
@@ -953,7 +955,10 @@ def main(args):
                 
                 # Sample a random timestep for each image
                 noise = torch.randn_like(latents)
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device).long()
+                random_indices = torch.randperm(bsz)[:1]
+
+                # Use these indices to select random timesteps
+                timesteps = noise_scheduler.timesteps[random_indices].to("cuda")
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps).to("cuda")
 
                 #controlnet images
