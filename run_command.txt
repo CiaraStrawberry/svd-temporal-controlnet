@@ -6,7 +6,7 @@ accelerate launch train_controlnet_sdv.py \
  --depth_folder="/data/webvid/webvid/depth_maps" \
  --validation_image_folder="/home/holo/sdv_controlnet/validation_demo/rgb" \
  --validation_control_folder="/home/holo//sdv_controlnet/validation_demo/depth" \
- --resolution=512 \
+ --resolution=256 \
  --learning_rate=2e-5 \
  --train_batch_size=8 \
  --num_train_epochs=1 \

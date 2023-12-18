@@ -55,6 +55,7 @@ from diffusers import (
 )
 #from scheduling_ddim_test import DDIMScheduler
 from diffusers.utils.torch_utils import randn_tensor
+from diffusers.utils import load_image, export_to_video
 
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
@@ -836,8 +837,8 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    controlnet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        controlnet, optimizer, train_dataloader, lr_scheduler
+    controlnet,unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+        controlnet,unet, optimizer, train_dataloader, lr_scheduler
     )
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
@@ -929,7 +930,7 @@ def main(args):
 
                 pixel_values = batch["pixel_values"].to(vae.dtype)
                 input_first_image = pixel_values[:, 0, :, :, :]
-                
+                print("shape",pixel_values.shape)
                 # Sample noise that we'll add to the latents
                 img_noise = randn_tensor(input_first_image.shape, device=input_first_image.device, dtype=input_first_image.dtype)
                 noise_aug_strength = 0.02 #"¯\_(ツ)_/¯
@@ -938,7 +939,7 @@ def main(args):
                 with torch.no_grad():
 
                     pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
-                    pixel_values = pixel_values.to(vae.dtype)
+                    pixel_values = pixel_values.to(dtype=weight_dtype)
                     latents = vae.encode(pixel_values).latent_dist
                     latents = latents.mode()
                     latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
@@ -955,10 +956,13 @@ def main(args):
                 
                 # Sample a random timestep for each image
                 noise = torch.randn_like(latents)
-                random_indices = torch.randperm(bsz)[:1]
+                random_indices = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device="cpu")
 
+
+                print("all indicies",random_indices)
                 # Use these indices to select random timesteps
                 timesteps = noise_scheduler.timesteps[random_indices].to("cuda")
+                print("all steps",timesteps)
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps).to("cuda")
 
                 #controlnet images
@@ -978,10 +982,12 @@ def main(args):
 
 
                 repeated_first_frames = first_frame_latents.unsqueeze(2).repeat(1, 1, 14, 1, 1)
-
+                #noisy_latents_scaled = noise_scheduler.scale_model_input(noisy_latents, timesteps)
                 latent_model_input = torch.cat([noisy_latents, repeated_first_frames], dim=1)
                 latent_model_input = rearrange(latent_model_input,"b c f h w -> b f c h w")
                 # kinda weird it's not b c f hw
+                
+                #latent_model_input = 
 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,
@@ -994,7 +1000,6 @@ def main(args):
 
                 
             
-                
                 # Predict the noise residual
                 model_pred = unet(
                     latent_model_input,
@@ -1012,9 +1017,12 @@ def main(args):
                 
                 noise = rearrange(noise,"b c f h w -> b f c h w")
                 latents = rearrange(latents,"b c f h w -> b f c h w")
-                target = noise_scheduler.get_velocity(latents, noise, timesteps)
+
+                
+                target = noise
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
+                #print(loss)
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
                     params_to_clip = controlnet.parameters()

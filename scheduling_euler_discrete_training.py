@@ -133,12 +133,6 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
     _compatibles = [e.name for e in KarrasDiffusionSchedulers]
     order = 1
 
-
-    
-
-
-
-
     @register_to_config
     def __init__(
         self,
@@ -155,6 +149,7 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
         timestep_spacing: str = "linspace",
         timestep_type: str = "discrete",  # can be "discrete" or "continuous"
         steps_offset: int = 0,
+        rescale_betas_zero_snr: bool = False,
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
@@ -169,21 +164,28 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
         else:
             raise NotImplementedError(f"{beta_schedule} does is not implemented for {self.__class__}")
 
+        if rescale_betas_zero_snr:
+            self.betas = rescale_zero_terminal_snr(self.betas)
+
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+
+        if rescale_betas_zero_snr:
+            # Close to 0 without being 0 so first sigma is not inf
+            # FP16 smallest positive subnormal works well here
+            self.alphas_cumprod[-1] = 2**-24
 
         sigmas = np.array(((1 - self.alphas_cumprod) / self.alphas_cumprod) ** 0.5)
         timesteps = np.linspace(0, num_train_timesteps - 1, num_train_timesteps, dtype=float)[::-1].copy()
 
         sigmas = sigmas[::-1].copy()
-        timesteps = torch.from_numpy(timesteps).to(dtype=torch.float32)
 
         if self.use_karras_sigmas:
             log_sigmas = np.log(sigmas)
             sigmas = self._convert_to_karras(in_sigmas=sigmas, num_inference_steps=num_train_timesteps)
-            timesteps = [self._sigma_to_t(sigma, log_sigmas) for sigma in sigmas]
-            
-        sigmas = torch.from_numpy(sigmas).to(dtype=torch.float32)    
+            timesteps = np.array([self._sigma_to_t(sigma, log_sigmas) for sigma in sigmas])
+
+        sigmas = torch.from_numpy(sigmas).to(dtype=torch.float32)
         # setable values
         self.num_inference_steps = None
 
@@ -191,7 +193,7 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
         if timestep_type == "continuous" and prediction_type == "v_prediction":
             self.timesteps = torch.Tensor([0.25 * sigma.log() for sigma in sigmas])
         else:
-            self.timesteps = timesteps
+            self.timesteps = torch.from_numpy(timesteps.astype(np.float32))
 
         self.sigmas = torch.cat([sigmas, torch.zeros(1, device=sigmas.device)])
 
@@ -200,14 +202,14 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
 
         self._step_index = None
 
-
     @property
     def init_noise_sigma(self):
         # standard deviation of the initial noise distribution
+        max_sigma = max(self.sigmas) if isinstance(self.sigmas, list) else self.sigmas.max()
         if self.config.timestep_spacing in ["linspace", "trailing"]:
-            return self.sigmas.max()
+            return max_sigma
 
-        return (self.sigmas.max() ** 2 + 1) ** 0.5
+        return (max_sigma**2 + 1) ** 0.5
 
     @property
     def step_index(self):
@@ -278,7 +280,7 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
 
         sigmas = np.array(((1 - self.alphas_cumprod) / self.alphas_cumprod) ** 0.5)
         log_sigmas = np.log(sigmas)
-
+        
         if self.config.interpolation_type == "linear":
             sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas)
         elif self.config.interpolation_type == "log_linear":
@@ -291,16 +293,17 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
 
         if self.use_karras_sigmas:
             sigmas = self._convert_to_karras(in_sigmas=sigmas, num_inference_steps=self.num_inference_steps)
+            
             timesteps = np.array([self._sigma_to_t(sigma, log_sigmas) for sigma in sigmas])
 
         sigmas = torch.from_numpy(sigmas).to(dtype=torch.float32, device=device)
 
         # TODO: Support the full EDM scalings for all prediction types and timestep types
-        print(self.config.timestep_type,self.config.prediction_type)
         if self.config.timestep_type == "continuous" and self.config.prediction_type == "v_prediction":
             self.timesteps = torch.Tensor([0.25 * sigma.log() for sigma in sigmas]).to(device=device)
         else:
             self.timesteps = torch.from_numpy(timesteps.astype(np.float32)).to(device=device)
+            
 
         self.sigmas = torch.cat([sigmas, torch.zeros(1, device=sigmas.device)])
         self._step_index = None
@@ -434,7 +437,6 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
             self._init_step_index(timestep)
 
         sigma = self.sigmas[self.step_index]
-
         gamma = min(s_churn / (len(self.sigmas) - 1), 2**0.5 - 1) if s_tmin <= sigma <= s_tmax else 0.0
 
         noise = randn_tensor(
@@ -443,7 +445,6 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
 
         eps = noise * s_noise
         sigma_hat = sigma * (gamma + 1)
-
         if gamma > 0:
             sample = sample + eps * (sigma_hat**2 - sigma**2) ** 0.5
 
@@ -492,15 +493,14 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
         else:
             schedule_timesteps = self.timesteps.to(original_samples.device)
             timesteps = timesteps.to(original_samples.device)
-    
+
         step_indices = [(schedule_timesteps == t).nonzero().item() for t in timesteps]
+        
         sigma = sigmas[step_indices].flatten()
         while len(sigma.shape) < len(original_samples.shape):
             sigma = sigma.unsqueeze(-1)
-    
-        # Add the scaled noise to the original samples
+
         noisy_samples = original_samples + noise * sigma
-        print("noise sigma",sigma)
         return noisy_samples
 
 
@@ -508,19 +508,57 @@ class EulerDiscreteSchedulerTraining(SchedulerMixin, ConfigMixin):
     def __len__(self):
         return self.config.num_train_timesteps
         
-    def interpolate_alphas(self, timesteps):
-        """
-        Interpolate alphas_cumprod using exponential interpolation in log space.
-        """
-        # Convert alphas_cumprod to log space
-        log_alphas_cumprod = torch.log(self.alphas_cumprod)
+    def get_velocity_old(
+        self, sample: torch.FloatTensor, noise: torch.FloatTensor, timesteps: torch.FloatTensor
+    ) -> torch.FloatTensor:
+        # Make sure sigmas and timesteps have the same device and dtype as sample
+        sigmas = self.sigmas.to(device=sample.device, dtype=torch.float32)
+        if sample.device.type == "mps" and torch.is_floating_point(timesteps):
+            # mps does not support float64
+            schedule_timesteps = self.timesteps.to(sample.device, dtype=torch.float32)
+            timesteps = timesteps.to(sample.device, dtype=torch.float32)
+        else:
+            schedule_timesteps = self.timesteps.to(sample.device)
+            timesteps = timesteps.to(sample.device)
+    
+        step_indices = [(schedule_timesteps == t).nonzero().item() for t in timesteps]
+    
+        sigma = sigmas[step_indices].flatten()
 
-        # Interpolate in log space
-        log_alphas_cumprod_interp = F.interpolate(log_alphas_cumprod[None, None, :], size=(len(timesteps),), mode='linear')
-        log_alphas_cumprod_interp = log_alphas_cumprod_interp.flatten()
+        
+        # Expanding sigma to match the shape of sample
+        while len(sigma.shape) < len(sample.shape):
+            sigma = sigma.unsqueeze(-1)
 
-        # Convert back to the original space
-        alphas_cumprod_interp = torch.exp(log_alphas_cumprod_interp)
+        c_out = sigma * 1 / (sigma**2 + 1**2) ** 0.5
+        
+        velocity = (noise * sigma - sample) / c_out
+        
+        # Calculating w
 
-        return alphas_cumprod_interp
+
+        return velocity
+    
+    def get_velocity(
+        self, sample: torch.FloatTensor, noise: torch.FloatTensor, timesteps: torch.FloatTensor
+    ) -> torch.FloatTensor:
+        # Make sure sigmas and timesteps have the same device and dtype as sample
+        sigmas = self.sigmas.to(device=sample.device, dtype=sample.dtype)
+        if sample.device.type == "mps" and torch.is_floating_point(timesteps):
+            # mps does not support float64
+            schedule_timesteps = self.timesteps.to(sample.device, dtype=torch.float32)
+            timesteps = timesteps.to(sample.device, dtype=torch.float32)
+        else:
+            schedule_timesteps = self.timesteps.to(sample.device)
+            timesteps = timesteps.to(sample.device)
+    
+        step_indices = [(schedule_timesteps == t).nonzero().item() for t in timesteps]
+    
+        sigma = sigmas[step_indices].flatten()
+        while len(sigma.shape) < len(sample.shape):
+            sigma = sigma.unsqueeze(-1)
+    
+        velocity = noise * sigma - sample
+        return velocity
+
 

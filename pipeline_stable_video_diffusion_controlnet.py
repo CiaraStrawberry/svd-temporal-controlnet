@@ -29,6 +29,7 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 from scheduling_euler_discrete_training import EulerDiscreteSchedulerTraining
+#from diffusers.pipelines.utils import PIL_INTERPOLATION, BaseOutput, logging
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
