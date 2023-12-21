@@ -7,6 +7,58 @@ from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipel
 from controlnet_sdv import ControlNetSDVModel
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 import cv2
+import re 
+
+def save_gifs_side_by_side(batch_output, validation_images, validation_control_images, output_folder):
+    # Helper function to convert tensors to PIL images and save as GIF
+    def create_gif(image_list, gif_path, duration=100):
+        pil_images = [validate_and_convert_image(img) for img in image_list]
+        pil_images = [img for img in pil_images if img is not None]
+        if pil_images:
+            pil_images[0].save(gif_path, save_all=True, append_images=pil_images[1:], loop=0, duration=duration)
+
+    # Creating GIFs for each image list
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    gif_paths = []
+    for idx, image_list in enumerate([validation_images, validation_control_images, batch_output]):
+        gif_path = os.path.join(output_folder, f"temp_{idx}_{timestamp}.gif")
+        create_gif(image_list, gif_path)
+        gif_paths.append(gif_path)
+
+    # Function to combine GIFs side by side
+    def combine_gifs_side_by_side(gif_paths, output_path):
+        gifs = [Image.open(gif) for gif in gif_paths]
+
+        # Assuming all gifs have the same frame count and duration
+        frames = []
+        for frame_idx in range(len(gifs[0].n_frames)):
+            combined_frame = None
+            for gif in gifs:
+                gif.seek(frame_idx)
+                if combined_frame is None:
+                    combined_frame = gif.copy()
+                else:
+                    combined_frame = get_concat_h(combined_frame, gif.copy())
+            frames.append(combined_frame)
+
+        frames[0].save(output_path, save_all=True, append_images=frames[1:], loop=0, duration=gifs[0].info['duration'])
+
+    # Helper function to concatenate images horizontally
+    def get_concat_h(im1, im2):
+        dst = Image.new('RGB', (im1.width + im2.width, max(im1.height, im2.height)))
+        dst.paste(im1, (0, 0))
+        dst.paste(im2, (im1.width, 0))
+        return dst
+
+    # Combine the GIFs into a single file
+    combined_gif_path = os.path.join(output_folder, f"combined_frames_{timestamp}.gif")
+    combine_gifs_side_by_side(gif_paths, combined_gif_path)
+
+    # Clean up temporary GIFs
+    for gif_path in gif_paths:
+        os.remove(gif_path)
+
+    return combined_gif_path
 
 # Define functions
 def validate_and_convert_image(image, target_size=(256, 256)):
@@ -121,13 +173,10 @@ def load_images_from_folder_to_pil(folder, target_size=(512, 512)):
     valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"}  # Add or remove extensions as needed
 
     def frame_number(filename):
-        parts = filename.split('_')
-        if len(parts) > 1 and parts[0] == 'frame':
-            try:
-                return int(parts[1].split('.')[0])  # Extracting the number part
-            except ValueError:
-                return float('inf')  # In case of non-integer part, place this file at the end
-        return float('inf')  # Non-frame files are placed at the end
+        match = re.search(r'\d+', filename)  # Search for the first sequence of digits in the filename
+        if match:
+            return int(match.group())  # Convert the found digits to an integer
+        return float('inf')  # Return 'inf' if no number is found
 
     # Sorting files based on frame number
     sorted_files = sorted(os.listdir(folder), key=frame_number)
@@ -194,5 +243,5 @@ if __name__ == "__main__":
 
     video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14).frames
 
-    save_combined_frames(video_frames,validation_images, validation_control_images,val_save_dir)
+    save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir).frames
     #save_combined_frames(video_frames, validation_images, validation_control_images,val_save_dir)
