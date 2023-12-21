@@ -197,33 +197,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
 
         return image_latents
 
-    def _get_add_time_ids(
-        self,
-        fps,
-        motion_bucket_id,
-        noise_aug_strength,
-        dtype,
-        batch_size,
-        num_videos_per_prompt,
-        do_classifier_free_guidance,
-    ):
-        add_time_ids = [fps, motion_bucket_id, noise_aug_strength]
 
-        passed_add_embed_dim = self.unet.config.addition_time_embed_dim * len(add_time_ids)
-        expected_add_embed_dim = self.unet.add_embedding.linear_1.in_features
-
-        if expected_add_embed_dim != passed_add_embed_dim:
-            raise ValueError(
-                f"Model expects an added time embedding vector of length {expected_add_embed_dim}, but a vector of {passed_add_embed_dim} was created. The model has an incorrect config. Please check `unet.config.time_embedding_type` and `text_encoder_2.config.projection_dim`."
-            )
-
-        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
-        add_time_ids = add_time_ids.repeat(batch_size * num_videos_per_prompt, 1)
-
-        if do_classifier_free_guidance:
-            add_time_ids = torch.cat([add_time_ids, add_time_ids])
-
-        return add_time_ids
 
     def decode_latents(self, latents, num_frames, decode_chunk_size=14):
         # [batch, frames, channels, height, width] -> [batch*frames, channels, height, width]
@@ -327,8 +301,8 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         num_inference_steps: int = 25,
         min_guidance_scale: float = 1.0,
         max_guidance_scale: float = 3.0,
-        fps: int = 7,
-        motion_bucket_id: int = 127,
+        fps: int = 4,
+        motion_bucket_id: int = 400,
         noise_aug_strength: int = 0.02,
         decode_chunk_size: Optional[int] = None,
         num_videos_per_prompt: Optional[int] = 1,
@@ -469,16 +443,16 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         #image_latents = torch.cat([image_latents] * 2) if do_classifier_free_guidance else image_latents
         
         # 5. Get Added Time IDs
-        added_time_ids = self._get_add_time_ids(
-            fps,
-            motion_bucket_id,
-            noise_aug_strength,
-            image_embeddings.dtype,
-            batch_size,
-            num_videos_per_prompt,
-            do_classifier_free_guidance,
-        )
-        added_time_ids = added_time_ids.to(device)
+        #added_time_ids = self._get_add_time_ids(
+         #   fps,
+         #   motion_bucket_id,
+         ##   noise_aug_strength,
+        #    image_embeddings.dtype,
+        #    batch_size,
+        #    num_videos_per_prompt,
+        #    do_classifier_free_guidance,
+        #)
+        #added_time_ids = added_time_ids.to(device)
 
         # 4. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -517,8 +491,8 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
             noise_aug_strength,
             image_embeddings.dtype,
             batch_size,
-            6,
-            128,
+            fps,
+            motion_bucket_id,
             unet=self.unet,
         )
         added_time_ids = torch.cat([added_time_ids] * 2) 

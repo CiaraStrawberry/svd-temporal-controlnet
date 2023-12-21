@@ -151,8 +151,11 @@ def load_images_from_folder(folder):
     def frame_number(filename):
         matches = re.findall(r'\d+', filename)  # Find all sequences of digits in the filename
         if matches:
-            return int(matches[-1])  # Convert the last found sequence of digits to an integer
-        return float('inf')  # Return 'inf' if no number is found
+            if matches[-1] == '0000' and len(matches) > 1:
+                return int(matches[-2])  # Return the second-to-last sequence if the last is '0000'
+            return int(matches[-1])  # Otherwise, return the last sequence
+        return float('inf')  # Return 'inf'
+
 
     # Sorting files based on frame number
     sorted_files = sorted(os.listdir(folder), key=frame_number)
@@ -173,8 +176,11 @@ def load_images_from_folder_to_pil(folder, target_size=(512, 512)):
     def frame_number(filename):
         matches = re.findall(r'\d+', filename)  # Find all sequences of digits in the filename
         if matches:
-            return int(matches[-1])  # Convert the last found sequence of digits to an integer
-        return float('inf')  # Return 'inf' if no number is found
+            if matches[-1] == '0000' and len(matches) > 1:
+                return int(matches[-2])  # Return the second-to-last sequence if the last is '0000'
+            return int(matches[-1])  # Otherwise, return the last sequence
+        return float('inf')  # Return 'inf'
+
 
     # Sorting files based on frame number
     sorted_files = sorted(os.listdir(folder), key=frame_number)
@@ -211,9 +217,9 @@ def load_images_from_folder_to_pil(folder, target_size=(512, 512)):
 if __name__ == "__main__":
     args = {
         "pretrained_model_name_or_path": "stabilityai/stable-video-diffusion-img2vid",
-        "validation_image_folder": "./run_tests/4/rgb",
-        "validation_control_folder": "./run_tests/4/depth",
-        "validation_image": "./run_tests/4/cow.png",
+        "validation_image_folder": "./run_tests/5/rgb",
+        "validation_control_folder": "./run_tests/5/depth",
+        "validation_image": "./run_tests/5/cat.png",
         "output_dir": "./output",
         "height": 512,
         "width": 512,
@@ -239,7 +245,7 @@ if __name__ == "__main__":
 
     # Inference and saving loop
 
-    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14).frames
+    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=400).frames
 
     save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir)
     #save_combined_frames(video_frames, validation_images, validation_control_images,val_save_dir)
