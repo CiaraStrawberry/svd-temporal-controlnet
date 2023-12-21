@@ -245,7 +245,6 @@ if __name__ == "__main__":
 
     # Inference and saving loop
 
-    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=400).frames
+    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=240).frames
 
     save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir)
-    #save_combined_frames(video_frames, validation_images, validation_control_images,val_save_dir)

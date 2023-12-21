@@ -217,7 +217,7 @@ def make_train_dataset(args):
 
     # In distributed training, the load_dataset function guarantees that only one local process can concurrently
     # download the dataset.
-    dataset = WebVid10M(args.csv_path,args.video_folder,args.depth_folder)
+    dataset = WebVid10M(args.csv_path,args.video_folder,args.depth_folder,args.motion_folder)
     return dataset
 
 
@@ -619,7 +619,7 @@ def parse_args():
     parser.add_argument(
         "--checkpoints_total_limit",
         type=int,
-        default=2,
+        default=3,
         help=("Max number of checkpoints to store."),
     )
     parser.add_argument(
@@ -667,6 +667,14 @@ def parse_args():
     )
     parser.add_argument(
         "--depth_folder",
+        type=str,
+        default=None,
+        help=(
+            "path to the depth folder"
+        ),
+    )
+    parser.add_argument(
+        "--motion_folder",
         type=str,
         default=None,
         help=(
@@ -1036,26 +1044,41 @@ def main():
 
     def _get_add_time_ids(
         fps,
-        motion_bucket_id,
+        motion_bucket_ids,  # Expecting a list of tensor floats
         noise_aug_strength,
         dtype,
         batch_size,
         unet=None,
     ):
-        add_time_ids = [fps, motion_bucket_id, noise_aug_strength]
-
-        passed_add_embed_dim = unet.config.addition_time_embed_dim * len(add_time_ids)
+        # Ensure motion_bucket_ids is a tensor with the correct shape
+        if not isinstance(motion_bucket_ids, torch.Tensor):
+            motion_bucket_ids = torch.tensor(motion_bucket_ids, dtype=dtype)
+    
+        # Reshape motion_bucket_ids if necessary
+        if motion_bucket_ids.dim() == 1:
+            motion_bucket_ids = motion_bucket_ids.view(-1, 1)
+    
+        # Check for batch size consistency
+        if motion_bucket_ids.size(0) != batch_size:
+            raise ValueError("The length of motion_bucket_ids must match the batch_size.")
+    
+        add_time_ids = [fps, noise_aug_strength]
+    
+        # Concatenate fps and noise_aug_strength with motion_bucket_ids along the second dimension
+        add_time_ids = torch.tensor(add_time_ids, dtype=dtype).repeat(batch_size, 1)
+        add_time_ids = torch.cat([add_time_ids, motion_bucket_ids], dim=1)
+    
+        # Checking the dimensions of the added time embedding
+        passed_add_embed_dim = unet.config.addition_time_embed_dim * add_time_ids.size(1)
         expected_add_embed_dim = unet.add_embedding.linear_1.in_features
-
+    
         if expected_add_embed_dim != passed_add_embed_dim:
             raise ValueError(
-                f"Model expects an added time embedding vector of length {expected_add_embed_dim}, but a vector of {passed_add_embed_dim} was created. The model has an incorrect config. Please check `unet.config.time_embedding_type` and `text_encoder_2.config.projection_dim`."
+                f"Model expects an added time embedding vector of length {expected_add_embed_dim}, "
+                f"but a vector of {passed_add_embed_dim} was created. The model has an incorrect config. "
+                "Please check `unet.config.time_embedding_type` and `text_encoder_2.config.projection_dim`."
             )
-
-        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
-        add_time_ids = add_time_ids.repeat(batch_size, 1)
-
-
+    
         return add_time_ids
 
 
@@ -1144,7 +1167,7 @@ def main():
 
                 added_time_ids = _get_add_time_ids(
                     6,
-                    30,
+                    batch["motion_values"],
                     train_noise_aug, # noise_aug_strength == 0.0
                     encoder_hidden_states.dtype,
                     bsz,
@@ -1196,7 +1219,7 @@ def main():
 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     inp_noisy_latents, timesteps, encoder_hidden_states,
-                    #added_time_ids=added_time_ids,
+                    added_time_ids=added_time_ids,
                     controlnet_cond=controlnet_image,
                     return_dict=False,
                 )

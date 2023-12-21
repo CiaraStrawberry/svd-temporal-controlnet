@@ -28,7 +28,7 @@ def numpy_to_pt(images: np.ndarray) -> torch.FloatTensor:
 class WebVid10M(Dataset):
     def __init__(
             self,
-            csv_path, video_folder,depth_folder,
+            csv_path, video_folder,depth_folder,motion_folder,
             sample_size=256, sample_stride=4, sample_n_frames=14,
         ):
         zero_rank_print(f"loading annotations from {csv_path} ...")
@@ -41,6 +41,7 @@ class WebVid10M(Dataset):
         self.sample_stride   = sample_stride
         self.sample_n_frames = sample_n_frames
         self.depth_folder = depth_folder
+        self.motion_values_folder=motion_folder
         print("length",len(self.dataset))
         sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
         print("sample size",sample_size)
@@ -67,13 +68,17 @@ class WebVid10M(Dataset):
         def sort_frames(frame_name):
             return int(frame_name.split('_')[1].split('.')[0])
     
+
+    
         while True:
             video_dict = self.dataset[idx]
-            videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
+            videoid = video_dict['videoid']
+    
             preprocessed_dir = os.path.join(self.video_folder, videoid)
             depth_folder = os.path.join(self.depth_folder, videoid)
+            motion_values_file = os.path.join(self.motion_values_folder, videoid, videoid + "_average_motion.txt")
     
-            if not os.path.exists(depth_folder):
+            if not os.path.exists(depth_folder) or not os.path.exists(motion_values_file):
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue
     
@@ -94,7 +99,11 @@ class WebVid10M(Dataset):
             numpy_depth_images = np.array([pil_image_to_numpy(Image.open(os.path.join(depth_folder, df))) for df in depth_files])
             depth_pixel_values = numpy_to_pt(numpy_depth_images)
     
-            return pixel_values, depth_pixel_values
+            # Load motion values
+            with open(motion_values_file, 'r') as file:
+                motion_values = float(file.read().strip())
+    
+            return pixel_values, depth_pixel_values, motion_values
 
         
         
@@ -106,14 +115,14 @@ class WebVid10M(Dataset):
         
         #while True:
            # try:
-        pixel_values, depth_pixel_values = self.get_batch(idx)
+        pixel_values, depth_pixel_values,motion_values = self.get_batch(idx)
            #     break
           #  except Exception as e:
           #      print(e)
           #      idx = random.randint(0, self.length - 1)
 
         pixel_values = self.pixel_transforms(pixel_values)
-        sample = dict(pixel_values=pixel_values, depth_pixel_values=depth_pixel_values)
+        sample = dict(pixel_values=pixel_values, depth_pixel_values=depth_pixel_values,motion_values=motion_values)
         return sample
 
 

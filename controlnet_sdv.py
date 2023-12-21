@@ -436,7 +436,7 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         sample: torch.FloatTensor,
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
-        #added_time_ids: torch.Tensor,
+        added_time_ids: torch.Tensor,
         controlnet_cond: torch.FloatTensor = None,
         image_only_indicator: Optional[torch.Tensor] = None,
         return_dict: bool = True,
@@ -492,11 +492,11 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
 
         emb = self.time_embedding(t_emb)
 
-        #time_embeds = self.add_time_proj(added_time_ids.flatten())
-        #time_embeds = time_embeds.reshape((batch_size, -1))
-        #time_embeds = time_embeds.to(emb.dtype)
-        #aug_emb = self.add_embedding(time_embeds)
-        #emb = emb + aug_emb
+        time_embeds = self.add_time_proj(added_time_ids.flatten())
+        time_embeds = time_embeds.reshape((batch_size, -1))
+        time_embeds = time_embeds.to(emb.dtype)
+        aug_emb = self.add_embedding(time_embeds)
+        emb = emb + aug_emb
 
         # Flatten the batch and frames dimensions
         # sample: [batch, frames, channels, height, width] -> [batch * frames, channels, height, width]
