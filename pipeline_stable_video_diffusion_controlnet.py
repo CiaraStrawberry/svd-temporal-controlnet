@@ -532,13 +532,14 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
                 # Concatenate image_latents over channels dimention
+                
                 latent_model_input = torch.cat([latent_model_input, image_latents], dim=2)
                 down_block_res_samples, mid_block_res_sample = self.controlnet(
                     latent_model_input,
                     t,
                     encoder_hidden_states=image_embeddings,
                     controlnet_cond=controlnet_condition,
-                    added_time_ids=added_time_ids,
+                   # added_time_ids=added_time_ids,
                  #   conditioning_scale=cond_scale,
                     guess_mode=False,
                     return_dict=False,

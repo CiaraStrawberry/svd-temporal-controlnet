@@ -1,20 +1,20 @@
-accelerate launch train_controlnet_sdv.py \
+accelerate launch train_svd.py \
  --pretrained_model_name_or_path="stabilityai/stable-video-diffusion-img2vid" \
- --output_dir="model_out4" \
+ --output_dir="model_out6" \
  --csv_path="/home/holo/sdv_controlnet/results_2M_train.csv" \
  --video_folder="/data/webvid/webvid/preprocessed_videos" \
  --depth_folder="/data/webvid/webvid/depth_maps" \
  --validation_image_folder="/home/holo/sdv_controlnet/validation_demo/rgb" \
  --validation_control_folder="/home/holo//sdv_controlnet/validation_demo/depth" \
- --resolution=256 \
+ --width=512 \
+ --height=512 \
  --learning_rate=2e-5 \
- --train_batch_size=8 \
- --num_train_epochs=1 \
+ --per_gpu_batch_size=8 \
+ --num_train_epochs=5 \
  --mixed_precision="fp16" \
- --gradient_accumulation_steps=1 \
- --tracker_project_name="controlnet" \
+ --gradient_accumulation_steps=2 \
  --checkpointing_steps=2000 \
- --validation_steps=100 \
+ --validation_steps=400 \
  --gradient_checkpointing \
  --enable_xformers_memory_efficient_attention \
  --report_to wandb \

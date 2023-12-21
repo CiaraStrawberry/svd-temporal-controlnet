@@ -72,7 +72,7 @@ class ControlNetConditioningEmbeddingSVD(nn.Module):
         self,
         conditioning_embedding_channels: int,
         conditioning_channels: int = 3,
-        block_out_channels: Tuple[int, ...] = (320, 640, 1280, 1280),
+        block_out_channels: Tuple[int, ...] = (16, 32, 96, 256),
     ):
         super().__init__()
 
@@ -436,8 +436,8 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         sample: torch.FloatTensor,
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
-        added_time_ids: torch.Tensor,
-        controlnet_cond: torch.FloatTensor,
+        #added_time_ids: torch.Tensor,
+        controlnet_cond: torch.FloatTensor = None,
         image_only_indicator: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         guess_mode: bool = False,
@@ -492,11 +492,11 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
 
         emb = self.time_embedding(t_emb)
 
-        time_embeds = self.add_time_proj(added_time_ids.flatten())
-        time_embeds = time_embeds.reshape((batch_size, -1))
-        time_embeds = time_embeds.to(emb.dtype)
-        aug_emb = self.add_embedding(time_embeds)
-        emb = emb + aug_emb
+        #time_embeds = self.add_time_proj(added_time_ids.flatten())
+        #time_embeds = time_embeds.reshape((batch_size, -1))
+        #time_embeds = time_embeds.to(emb.dtype)
+        #aug_emb = self.add_embedding(time_embeds)
+        #emb = emb + aug_emb
 
         # Flatten the batch and frames dimensions
         # sample: [batch, frames, channels, height, width] -> [batch * frames, channels, height, width]
@@ -511,8 +511,9 @@ class ControlNetSDVModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         sample = self.conv_in(sample)
         
         #controlnet cond
-        controlnet_cond = self.controlnet_cond_embedding(controlnet_cond)
-        sample = sample + controlnet_cond
+        if controlnet_cond != None:
+            controlnet_cond = self.controlnet_cond_embedding(controlnet_cond)
+            sample = sample + controlnet_cond
         
 
         image_only_indicator = torch.zeros(batch_size, num_frames, dtype=sample.dtype, device=sample.device)

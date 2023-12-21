@@ -966,7 +966,7 @@ def main(args):
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps).to("cuda")
 
                 #controlnet images
-                controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
+                controlnet_image = batch["depth_pixel_values"]
 
 
                 #time embedding,  
@@ -988,7 +988,7 @@ def main(args):
                 # kinda weird it's not b c f hw
                 
                 #latent_model_input = 
-
+                print(latent_model_input.shape,timesteps.shape,controlnet_image.shape,encoder_hidden_states.shape)
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     latent_model_input,
                     timesteps,
