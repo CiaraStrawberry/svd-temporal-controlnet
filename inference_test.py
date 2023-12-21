@@ -11,6 +11,7 @@ import re
 
 def save_gifs_side_by_side(batch_output, validation_images, validation_control_images, output_folder):
     # Helper function to convert tensors to PIL images and save as GIF
+    flattened_batch_output = [img for sublist in batch_output for img in sublist]
     def create_gif(image_list, gif_path, duration=100):
         pil_images = [validate_and_convert_image(img) for img in image_list]
         pil_images = [img for img in pil_images if img is not None]
@@ -20,7 +21,7 @@ def save_gifs_side_by_side(batch_output, validation_images, validation_control_i
     # Creating GIFs for each image list
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     gif_paths = []
-    for idx, image_list in enumerate([validation_images, validation_control_images, batch_output]):
+    for idx, image_list in enumerate([validation_images, validation_control_images, flattened_batch_output]):
         gif_path = os.path.join(output_folder, f"temp_{idx}_{timestamp}.gif")
         create_gif(image_list, gif_path)
         gif_paths.append(gif_path)
@@ -31,7 +32,7 @@ def save_gifs_side_by_side(batch_output, validation_images, validation_control_i
 
         # Assuming all gifs have the same frame count and duration
         frames = []
-        for frame_idx in range(len(gifs[0].n_frames)):
+        for frame_idx in range(gifs[0].n_frames):
             combined_frame = None
             for gif in gifs:
                 gif.seek(frame_idx)
@@ -117,7 +118,7 @@ def save_combined_frames(batch_output, validation_images, validation_control_ima
     # Convert tensors in lists to PIL Images
     validation_images = [tensor_to_pil(img) if torch.is_tensor(img) else img for img in validation_images]
     validation_control_images = [tensor_to_pil(img) if torch.is_tensor(img) else img for img in validation_control_images]
-    flattened_batch_output = [tensor_to_pil(img) if torch.is_tensor(img) else img for img in flattened_batch_output]
+    flattened_batch_output = [tensor_to_pil(img) if torch.is_tensor(img) else img for img in batch_output]
 
     # Flatten lists if they contain sublists (for tensors converted to multiple images)
     validation_images = [img for sublist in validation_images for img in (sublist if isinstance(sublist, list) else [sublist])]
@@ -148,13 +149,10 @@ def load_images_from_folder(folder):
 
     # Function to extract frame number from the filename
     def frame_number(filename):
-        parts = filename.split('_')
-        if len(parts) > 1 and parts[0] == 'frame':
-            try:
-                return int(parts[1].split('.')[0])  # Extracting the number part
-            except ValueError:
-                return float('inf')  # In case of non-integer part, place this file at the end
-        return float('inf')  # Non-frame files are placed at the end
+        matches = re.findall(r'\d+', filename)  # Find all sequences of digits in the filename
+        if matches:
+            return int(matches[-1])  # Convert the last found sequence of digits to an integer
+        return float('inf')  # Return 'inf' if no number is found
 
     # Sorting files based on frame number
     sorted_files = sorted(os.listdir(folder), key=frame_number)
@@ -173,9 +171,9 @@ def load_images_from_folder_to_pil(folder, target_size=(512, 512)):
     valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"}  # Add or remove extensions as needed
 
     def frame_number(filename):
-        match = re.search(r'\d+', filename)  # Search for the first sequence of digits in the filename
-        if match:
-            return int(match.group())  # Convert the found digits to an integer
+        matches = re.findall(r'\d+', filename)  # Find all sequences of digits in the filename
+        if matches:
+            return int(matches[-1])  # Convert the last found sequence of digits to an integer
         return float('inf')  # Return 'inf' if no number is found
 
     # Sorting files based on frame number
@@ -213,9 +211,9 @@ def load_images_from_folder_to_pil(folder, target_size=(512, 512)):
 if __name__ == "__main__":
     args = {
         "pretrained_model_name_or_path": "stabilityai/stable-video-diffusion-img2vid",
-        "validation_image_folder": "./run_tests/3/rgb",
-        "validation_control_folder": "./run_tests/3/depth",
-        "validation_image": "./run_tests/3/scene.png",
+        "validation_image_folder": "./run_tests/4/rgb",
+        "validation_control_folder": "./run_tests/4/depth",
+        "validation_image": "./run_tests/4/cow.png",
         "output_dir": "./output",
         "height": 512,
         "width": 512,
@@ -243,5 +241,5 @@ if __name__ == "__main__":
 
     video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14).frames
 
-    save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir).frames
+    save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir)
     #save_combined_frames(video_frames, validation_images, validation_control_images,val_save_dir)
