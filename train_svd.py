@@ -1066,7 +1066,7 @@ def main():
     
         # Concatenate fps and noise_aug_strength with motion_bucket_ids along the second dimension
         add_time_ids = torch.tensor(add_time_ids, dtype=dtype).repeat(batch_size, 1)
-        add_time_ids = torch.cat([add_time_ids, motion_bucket_ids], dim=1)
+        add_time_ids = torch.cat([add_time_ids, motion_bucket_ids.to(add_time_ids)], dim=1)
     
         # Checking the dimensions of the added time embedding
         passed_add_embed_dim = unet.config.addition_time_embed_dim * add_time_ids.size(1)
