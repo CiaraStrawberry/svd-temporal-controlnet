@@ -3,7 +3,7 @@ import torch
 import datetime
 import numpy as np
 from PIL import Image
-from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
+from pipeline.pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
 from controlnet_sdv import ControlNetSDVModel
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 import cv2

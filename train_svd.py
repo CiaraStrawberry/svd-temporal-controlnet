@@ -53,9 +53,9 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate, is_wandb_available, load_image
 from diffusers.utils.import_utils import is_xformers_available
-from dataset import WebVid10M
+from utils.dataset import WebVid10M
 from models.unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
-from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
+from pipeline.pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
 from models.controlnet_sdv import ControlNetSDVModel
 
 from torch.utils.data import Dataset
