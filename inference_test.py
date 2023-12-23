@@ -212,14 +212,39 @@ def load_images_from_folder_to_pil(folder, target_size=(512, 512)):
     return images
 
 # Usage example
+def convert_list_bgra_to_rgba(image_list):
+    """
+    Convert a list of PIL Image objects from BGRA to RGBA format.
+
+    Parameters:
+    image_list (list of PIL.Image.Image): A list of images in BGRA format.
+
+    Returns:
+    list of PIL.Image.Image: The list of images converted to RGBA format.
+    """
+    rgba_images = []
+    for image in image_list:
+        if image.mode == 'RGBA' or image.mode == 'BGRA':
+            # Split the image into its components
+            b, g, r, a = image.split()
+            # Re-merge in RGBA order
+            converted_image = Image.merge("RGBA", (r, g, b, a))
+        else:
+            # For non-alpha images, assume they are BGR and convert to RGB
+            b, g, r = image.split()
+            converted_image = Image.merge("RGB", (r, g, b))
+
+        rgba_images.append(converted_image)
+
+    return rgba_images
 
 # Main script
 if __name__ == "__main__":
     args = {
         "pretrained_model_name_or_path": "stabilityai/stable-video-diffusion-img2vid",
-        "validation_image_folder": "./run_tests/5/rgb",
-        "validation_control_folder": "./run_tests/5/depth",
-        "validation_image": "./run_tests/5/cat.png",
+        "validation_image_folder": "./run_tests/15/rgb",
+        "validation_control_folder": "./run_tests/15/depth",
+        "validation_image": "./run_tests/15/woman.png",
         "output_dir": "./output",
         "height": 512,
         "width": 512,
@@ -228,6 +253,7 @@ if __name__ == "__main__":
 
     # Load validation images and control images
     validation_images = load_images_from_folder_to_pil(args["validation_image_folder"])
+    #validation_images = convert_list_bgra_to_rgba(validation_images)
     validation_control_images = load_images_from_folder_to_pil(args["validation_control_folder"])
     validation_image = Image.open(args["validation_image"]).convert('RGB')
 
@@ -245,6 +271,6 @@ if __name__ == "__main__":
 
     # Inference and saving loop
 
-    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=240).frames
+    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=400,controlnet_cond_scale=1.0).frames
 
     save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir)

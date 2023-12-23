@@ -28,7 +28,7 @@ from diffusers.utils import BaseOutput, logging
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
-from scheduling_euler_discrete_karras_fix import EulerDiscreteScheduler as EulerDiscreteSchedulerTraining
+from scheduling_euler_discrete_karras_fix import EulerDiscreteScheduler
 #from diffusers.pipelines.utils import PIL_INTERPOLATION, BaseOutput, logging
 
 
@@ -125,7 +125,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         image_encoder: CLIPVisionModelWithProjection,
         unet: UNetSpatioTemporalConditionControlNetModel,
         controlnet: ControlNetSDVModel,
-        scheduler: EulerDiscreteSchedulerTraining,
+        scheduler: EulerDiscreteScheduler,
         feature_extractor: CLIPImageProcessor,
     ):
         super().__init__()
@@ -335,6 +335,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         return_dict: bool = True,
+        controlnet_cond_scale=1.0,
         batch_size=1,
     ):
         r"""
@@ -540,7 +541,7 @@ class StableVideoDiffusionPipelineControlNet(DiffusionPipeline):
                     encoder_hidden_states=image_embeddings,
                     controlnet_cond=controlnet_condition,
                     added_time_ids=added_time_ids,
-                 #   conditioning_scale=cond_scale,
+                    conditioning_scale=controlnet_cond_scale,
                     guess_mode=False,
                     return_dict=False,
                 )
