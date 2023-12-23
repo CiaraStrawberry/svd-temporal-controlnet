@@ -242,9 +242,9 @@ def convert_list_bgra_to_rgba(image_list):
 if __name__ == "__main__":
     args = {
         "pretrained_model_name_or_path": "stabilityai/stable-video-diffusion-img2vid",
-        "validation_image_folder": "./run_tests/15/rgb",
-        "validation_control_folder": "./run_tests/15/depth",
-        "validation_image": "./run_tests/15/woman.png",
+        "validation_image_folder": "./validation_demo/rgb",
+        "validation_control_folder": "./validation_demo/depth",
+        "validation_image": "./validation_demo/woman.png",
         "output_dir": "./output",
         "height": 512,
         "width": 512,
@@ -271,6 +271,6 @@ if __name__ == "__main__":
 
     # Inference and saving loop
 
-    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=400,controlnet_cond_scale=1.0).frames
+    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=100,controlnet_cond_scale=1.0).frames
 
     save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir)
