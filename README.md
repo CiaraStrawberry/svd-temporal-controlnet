@@ -4,7 +4,7 @@
 Introducing the Stable Video Diffusion Temporal Controlnet! This innovative tool merges the prowess of a controlnet style encoder with the robustness of the svd base. It's designed to enhance your video diffusion projects by providing precise temporal control.
 
 ## Setup
-- **Controlnet Model:** First, obtain a svd temporal controlnet model folder from here: [temporal-controlnet-depth-svd-v1](https://huggingface.co/CiaraRowles/temporal-controlnet-depth-svd-v1)
+- **Controlnet Model:** First, obtain a svd temporal controlnet model folder from here and drop the controlnet folder into the repo folder: [temporal-controlnet-depth-svd-v1](https://huggingface.co/CiaraRowles/temporal-controlnet-depth-svd-v1)
 - **Installation:** run `pip install -r requirements.txt`
 - **Execution:** Run "run_inference.py".
 
@@ -15,7 +15,7 @@ Introducing the Stable Video Diffusion Temporal Controlnet! This innovative tool
 
 ## Notes
 - **Focus on Central Object:** The system tends to extract motion features primarily from a central object and, occasionally, from the background. It's best to avoid overly complex motion or obscure objects.
-- **Simplicity in Motion:** Stick to motions that svd can handle effortlessly, even without the controlnet. This ensures consistency and better output quality.
+- **Simplicity in Motion:** Stick to motions that svd can handle well without the controlnet. This ensures it will be able to apply the motion.
 
 ## Acknowledgements
 - **Diffusers Team:** For the svd implementation.
