@@ -248,7 +248,7 @@ if __name__ == "__main__":
         "output_dir": "./output",
         "height": 512,
         "width": 512,
-        # Additional arguments can be added here
+        # cant be bothered to add the args in myself, just use notepad
     }
 
     # Load validation images and control images
@@ -259,7 +259,7 @@ if __name__ == "__main__":
 
 
     # Load and set up the pipeline
-    controlnet = controlnet = ControlNetSDVModel.from_pretrained("./controlnet")
+    controlnet = controlnet = ControlNetSDVModel.from_pretrained("CiaraRowles/temporal-controlnet-depth-svd-v1",subfolder="controlnet")
     unet = UNetSpatioTemporalConditionControlNetModel.from_pretrained(args["pretrained_model_name_or_path"],subfolder="unet")
     pipeline = StableVideoDiffusionPipelineControlNet.from_pretrained(args["pretrained_model_name_or_path"],controlnet=controlnet,unet=unet)
     pipeline.enable_model_cpu_offload()
