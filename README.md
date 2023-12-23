@@ -1,7 +1,7 @@
 # Stable Video Diffusion Temporal Controlnet
 
 ## Overview
-Introducing the Stable Video Diffusion Temporal Controlnet! This innovative tool merges the prowess of a controlnet style encoder with the robustness of the svd base. It's designed to enhance your video diffusion projects by providing precise temporal control.
+Introducing the Stable Video Diffusion Temporal Controlnet! This tool uses a controlnet style encoder with the svd base. It's designed to enhance your video diffusion projects by providing precise temporal control.
 
 ## Setup
 - **Controlnet Model:** First, obtain a svd temporal controlnet model folder from here and drop the controlnet folder into the repo folder: [temporal-controlnet-depth-svd-v1](https://huggingface.co/CiaraRowles/temporal-controlnet-depth-svd-v1)
