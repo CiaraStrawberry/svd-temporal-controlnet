@@ -41,6 +41,7 @@ accelerate launch train_svd.py \
 ```
 
 ## Acknowledgements
-- **lllyasviel** for the original controlnet implimentation
+- **lllyasviel:** for the original controlnet implimentation
+- **Stability:** for stable video diffusion.
 - **Diffusers Team:** For the svd implementation.
 - **Pixeli99:** For providing a practical svd training script: [SVD_Xtend](https://github.com/pixeli99/SVD_Xtend)
