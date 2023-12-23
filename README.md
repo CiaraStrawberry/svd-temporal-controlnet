@@ -9,7 +9,6 @@ Introducing the Stable Video Diffusion Temporal Controlnet! This innovative tool
 - **Execution:** Run "run_inference.py".
 
 ## Demo
-[Stable Video Diffusion Temporal Controlnet Repository](https://github.com/CiaraStrawberry/sdv_controlnet)
 
 ![combined_with_square_image_new_gif](https://github.com/CiaraStrawberry/sdv_controlnet/assets/13116982/055c8d3b-074e-4aeb-9ddc-70d12b5504d5)
 
