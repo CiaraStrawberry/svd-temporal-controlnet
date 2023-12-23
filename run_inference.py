@@ -4,8 +4,8 @@ import datetime
 import numpy as np
 from PIL import Image
 from pipeline.pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
-from controlnet_sdv import ControlNetSDVModel
-from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
+from models.controlnet_sdv import ControlNetSDVModel
+from models.unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 import cv2
 import re 
 
@@ -244,7 +244,7 @@ if __name__ == "__main__":
         "pretrained_model_name_or_path": "stabilityai/stable-video-diffusion-img2vid",
         "validation_image_folder": "./validation_demo/rgb",
         "validation_control_folder": "./validation_demo/depth",
-        "validation_image": "./validation_demo/woman.png",
+        "validation_image": "./validation_demo/chair.png",
         "output_dir": "./output",
         "height": 512,
         "width": 512,
