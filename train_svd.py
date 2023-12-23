@@ -42,7 +42,7 @@ from packaging import version
 from tqdm.auto import tqdm
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 from einops import rearrange
-from controlnet_sdv import ControlNetSDVModel
+
 import datetime
 import diffusers
 from diffusers import StableVideoDiffusionPipeline
@@ -54,8 +54,9 @@ from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate, is_wandb_available, load_image
 from diffusers.utils.import_utils import is_xformers_available
 from dataset import WebVid10M
-from unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
+from models.unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
 from pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
+from models.controlnet_sdv import ControlNetSDVModel
 
 from torch.utils.data import Dataset
 
