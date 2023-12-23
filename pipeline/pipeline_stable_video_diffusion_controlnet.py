@@ -28,7 +28,7 @@ from diffusers.utils import BaseOutput, logging
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
 from models.unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
-from scheduling_euler_discrete_karras_fix import EulerDiscreteScheduler
+from utils.scheduling_euler_discrete_karras_fix import EulerDiscreteScheduler
 #from diffusers.pipelines.utils import PIL_INTERPOLATION, BaseOutput, logging
 
 
