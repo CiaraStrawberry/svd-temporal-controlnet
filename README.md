@@ -1,20 +1,21 @@
-# sdv_controlnet
+# Stable Video Diffusion Temporal Controlnet
 
-Stable Video Diffusion Temporal Controlnet!
+## Overview
+Introducing the Stable Video Diffusion Temporal Controlnet! This innovative tool merges the prowess of a controlnet style encoder with the robustness of the svd base. It's designed to enhance your video diffusion projects by providing precise temporal control.
 
-This is an implementation of the controlnet style encoder over the svd base.
+## Setup
+- **Controlnet Model:** First, obtain a svd temporal controlnet model folder from here and drop the controlnet folder into the repo folder: [temporal-controlnet-depth-svd-v1](https://huggingface.co/CiaraRowles/temporal-controlnet-depth-svd-v1)
+- **Installation:** run `pip install -r requirements.txt`
+- **Execution:** Run "run_inference.py".
 
-To run this simply add a controlnet model folder from here: 
-into  this directory, install the requirements and run "run_inference.py" with your folders  added
+## Demo
 
-![combined_with_square_image_new_gif](https://github.com/CiaraStrawberry/sdv_controlnet/assets/13116982/e39192af-c31e-448d-975b-95fcecd34150)
+![combined_with_square_image_new_gif](https://github.com/CiaraStrawberry/sdv_controlnet/assets/13116982/055c8d3b-074e-4aeb-9ddc-70d12b5504d5)
 
-Some notes for getting a good result:
+## Notes
+- **Focus on Central Object:** The system tends to extract motion features primarily from a central object and, occasionally, from the background. It's best to avoid overly complex motion or obscure objects.
+- **Simplicity in Motion:** Stick to motions that svd can handle well without the controlnet. This ensures it will be able to apply the motion.
 
-This will tend to latch on to a central object to extract motion features from + sometimes a background, so it may ignore overly complex motion or the moving object if it isn't distinct enough within the object.
-Keep to motion that svd could generate without the controlnet.
-
-
-Thanks to diffusers for the svd implimentation.
-
-Thanks to pixeli99 for the working example of a svd training script: https://github.com/pixeli99/SVD_Xtend
+## Acknowledgements
+- **Diffusers Team:** For the svd implementation.
+- **Pixeli99:** For providing a practical svd training script: [SVD_Xtend](https://github.com/pixeli99/SVD_Xtend)
