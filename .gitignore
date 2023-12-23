@@ -2,6 +2,5 @@
 svd.safetensors
 results_2M_train.csv
 run_tests
-controlnet/diffusion_pytorch_model.safetensors
-controlnet/config.json
-controlnet/diffusion_pytorch_model_old.safetensors
+controlnet
+__pycache__
