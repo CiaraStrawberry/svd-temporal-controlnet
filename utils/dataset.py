@@ -29,7 +29,7 @@ class WebVid10M(Dataset):
     def __init__(
             self,
             csv_path, video_folder,depth_folder,motion_folder,
-            sample_size=256, sample_stride=4, sample_n_frames=14,
+            sample_size=512, sample_stride=4, sample_n_frames=14,
         ):
         zero_rank_print(f"loading annotations from {csv_path} ...")
         with open(csv_path, 'r') as csvfile:
@@ -43,7 +43,7 @@ class WebVid10M(Dataset):
         self.depth_folder = depth_folder
         self.motion_values_folder=motion_folder
         print("length",len(self.dataset))
-        sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
+        #sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
         print("sample size",sample_size)
         self.pixel_transforms = transforms.Compose([
             transforms.RandomHorizontalFlip(),
@@ -51,7 +51,11 @@ class WebVid10M(Dataset):
             transforms.CenterCrop(sample_size),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
         ])
-    
+        self.pixel_transforms_dont_normalize = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.Resize(sample_size),
+            transforms.CenterCrop(sample_size),
+        ])
 
 
 
@@ -76,9 +80,13 @@ class WebVid10M(Dataset):
     
             preprocessed_dir = os.path.join(self.video_folder, videoid)
             depth_folder = os.path.join(self.depth_folder, videoid)
-            motion_values_file = os.path.join(self.motion_values_folder, videoid, videoid + "_average_motion.txt")
+            motion_values_file = os.path.join(self.motion_values_folder, videoid, videoid + ".txt")
     
             if not os.path.exists(depth_folder) or not os.path.exists(motion_values_file):
+                #if not os.path.exists(depth_folder):
+                #    print(depth_folder)
+                #else:
+                #    print(motion_values_file)
                 idx = random.randint(0, len(self.dataset) - 1)
                 continue
     
@@ -121,6 +129,7 @@ class WebVid10M(Dataset):
           #      print(e)
           #      idx = random.randint(0, self.length - 1)
 
+        depth_pixel_values = self.pixel_transforms_dont_normalize(depth_pixel_values)
         pixel_values = self.pixel_transforms(pixel_values)
         sample = dict(pixel_values=pixel_values, depth_pixel_values=depth_pixel_values,motion_values=motion_values)
         return sample

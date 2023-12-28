@@ -55,7 +55,7 @@ from diffusers.utils import check_min_version, deprecate, is_wandb_available, lo
 from diffusers.utils.import_utils import is_xformers_available
 from utils.dataset import WebVid10M
 from models.unet_spatio_temporal_condition_controlnet import UNetSpatioTemporalConditionControlNetModel
-from pipeline.pipeline_stable_video_diffusion_controlnet import StableVideoDiffusionPipelineControlNet
+from pipeline.pipeline_stable_video_diffusion_controlnet_sparse import StableVideoDiffusionPipelineControlNetSparse
 from models.controlnet_sdv import ControlNetSDVModel
 
 from torch.utils.data import Dataset
@@ -105,13 +105,29 @@ def create_image_grid(images, rows, cols, target_size=(256, 256)):
         grid.paste(image, box=((i % cols) * w, (i // cols) * h))
 
     return grid
+    
+def tensor_to_pil(tensor):
+    # Convert a PyTorch tensor to a PIL Image
+    return Image.fromarray(tensor.mul(255).byte().cpu().numpy().transpose(1, 2, 0))
 
-def save_combined_frames(batch_output, validation_images, validation_control_images,output_folder):
+def save_combined_frames(batch_output, validation_images, validation_control_images, mask_tensors, output_folder):
     # Flatten batch_output, which is a list of lists of PIL Images
     flattened_batch_output = [img for sublist in batch_output for img in sublist]
 
+    mask_images = []
+    # Iterate through each frame in the single batch
+    for frame in mask_tensors[0]:  # Assuming mask_tensors[0] accesses the frames in the single batch
+        frame = frame.squeeze()  # Remove the channel dimension if it's 1
+        # Normalize if needed (commented out here)
+        # frame = (frame - frame.min()) / (frame.max() - frame.min())
+        mask_image = Image.fromarray((frame.cpu().numpy() * 255).astype('uint8'), 'L') # Convert to uint8 grayscale image
+        mask_images.append(mask_image)
+
     # Combine frames into a list without converting (since they are already PIL Images)
-    combined_frames = validation_images + validation_control_images + flattened_batch_output
+    combined_frames = validation_images + validation_control_images + flattened_batch_output + mask_images
+
+
+
 
     # Calculate rows and columns for the grid
     num_images = len(combined_frames)
@@ -135,6 +151,7 @@ def save_combined_frames(batch_output, validation_images, validation_control_ima
     else:
         print("Failed to create image grid")
 
+
 def load_images_from_folder(folder):
     images = []
     valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"}  # Add or remove extensions as needed
@@ -149,14 +166,18 @@ def load_images_from_folder(folder):
                 return float('inf')  # In case of non-integer part, place this file at the end
         return float('inf')  # Non-frame files are placed at the end
 
-    # Sorting files based on frame number
     sorted_files = sorted(os.listdir(folder), key=frame_number)
 
-    # Load images in sorted order
     for filename in sorted_files:
         ext = os.path.splitext(filename)[1].lower()
         if ext in valid_extensions:
-            img = Image.open(os.path.join(folder, filename)).convert('RGB')
+            img_path = os.path.join(folder, filename)
+            img = Image.open(img_path).convert('RGB')
+
+            # Resize the image
+            #hardcoded sizes i dont care
+            img = img.resize((256,256))
+
             images.append(img)
 
     return images
@@ -218,7 +239,7 @@ def make_train_dataset(args):
 
     # In distributed training, the load_dataset function guarantees that only one local process can concurrently
     # download the dataset.
-    dataset = WebVid10M(args.csv_path,args.video_folder,args.depth_folder,args.motion_folder)
+    dataset = WebVid10M(args.csv_path,args.video_folder,args.condition_folder,args.motion_folder,(args.width,args.height))
     return dataset
 
 
@@ -403,12 +424,12 @@ def parse_args():
     parser.add_argument(
         "--width",
         type=int,
-        default=512,
+        default=256,
     )
     parser.add_argument(
         "--height",
         type=int,
-        default=320,
+        default=256,
     )
     parser.add_argument(
         "--num_validation_images",
@@ -667,7 +688,7 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--depth_folder",
+        "--condition_folder",
         type=str,
         default=None,
         help=(
@@ -1205,23 +1226,27 @@ def main():
                     1).repeat(1, noisy_latents.shape[1], 1, 1, 1)
                 inp_noisy_latents = torch.cat(
                     [inp_noisy_latents, conditional_latents], dim=2)
-                controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
-                # Get the target for loss depending on the prediction type
-                # if noise_scheduler.config.prediction_type == "epsilon":
-                #     target = latents  # we are computing loss against denoise latents
-                # elif noise_scheduler.config.prediction_type == "v_prediction":
-                #     target = noise_scheduler.get_velocity(
-                #         latents, noise, timesteps)
-                # else:
-                #     raise ValueError(
-                #         f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+                controlnet_images = batch["depth_pixel_values"].to(dtype=weight_dtype,device=latents.device)
 
-                target = latents
+                batch_size, num_frames, _, height, width = controlnet_images.shape
+
+                # Initialize the mask with zeros
+                frame_mask = torch.zeros((batch_size, num_frames, 1, height, width), dtype=torch.float32)
+                
+                # Loop through each frame and randomly decide to mask or not (50% chance)
+                for i in range(num_frames):
+                    # Randomly decide to mask (50% chance)
+                    mask_value = torch.ones((batch_size, 1, height, width)) if torch.rand(1).item() > 0.5 else torch.zeros((batch_size, 1, height, width))
+                    frame_mask[:, i] = mask_value
+                frame_mask = frame_mask.to(latents.device)
+
+                controlnet_images = torch.where(frame_mask > 0, torch.zeros_like(controlnet_images), controlnet_images)
 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     inp_noisy_latents, timesteps, encoder_hidden_states,
                     added_time_ids=added_time_ids,
-                    controlnet_cond=controlnet_image,
+                    controlnet_cond=controlnet_images,
+                    controlnet_mask=frame_mask,
                     return_dict=False,
                 )
 
@@ -1237,6 +1262,7 @@ def main():
                     mid_block_additional_residual=mid_block_res_sample.to(dtype=weight_dtype),
                 ).sample
 
+                
                 sigmas = sigmas_reshaped
                 # Denoise the latents
                 c_out = -sigmas / ((sigmas**2 + 1)**0.5)
@@ -1244,6 +1270,20 @@ def main():
                 denoised_latents = model_pred * c_out + c_skip * noisy_latents
                 weighing = (1 + sigmas ** 2) * (sigmas**-2.0)
 
+                # Get the target for loss depending on the prediction type
+                # if noise_scheduler.config.prediction_type == "epsilon":
+                #     target = latents  # we are computing loss against denoise latents
+                # elif noise_scheduler.config.prediction_type == "v_prediction":
+                #     target = noise_scheduler.get_velocity(
+                #         latents, noise, timesteps)
+                # else:
+                #     raise ValueError(
+                #         f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+
+                target = latents
+
+
+                
                 # MSE loss
                 loss = torch.mean(
                     (weighing.float() * (denoised_latents.float() -
@@ -1320,7 +1360,7 @@ def main():
                             ema_controlnet.store(controlnet.parameters())
                             ema_controlnet.copy_to(controlnet.parameters())
                         # The models need unwrapping because for compatibility in distributed training mode.
-                        pipeline = StableVideoDiffusionPipelineControlNet.from_pretrained(
+                        pipeline = StableVideoDiffusionPipelineControlNetSparse.from_pretrained(
                             args.pretrained_model_name_or_path,
                             unet=accelerator.unwrap_model(unet),
                             controlnet=accelerator.unwrap_model(
@@ -1352,8 +1392,9 @@ def main():
                                 video_frames = pipeline(
                                     validation_images[0], 
                                     validation_control_images[:14],
-                                    height=args.height,
-                                    width=args.width,
+                                    frame_mask[0].unsqueeze(0),
+                                    height=args.width,
+                                    width=args.height,
                                     num_frames=num_frames,
                                     decode_chunk_size=8,
                                     motion_bucket_id=127,
@@ -1370,7 +1411,7 @@ def main():
                                 #for i in range(num_frames):
                                 #    img = video_frames[i]
                                 #    video_frames[i] = np.array(img)
-                                save_combined_frames(video_frames, validation_images, validation_control_images,val_save_dir)
+                                save_combined_frames(video_frames, validation_images, validation_control_images[:14],frame_mask,val_save_dir)
         
                                 #export_to_gif(video_frames, out_file, 8)
 
@@ -1395,7 +1436,7 @@ def main():
         if args.use_ema:
             ema_controlnet.copy_to(controlnet.parameters())
 
-        pipeline = StableVideoDiffusionPipelineControlNet.from_pretrained(
+        pipeline = StableVideoDiffusionPipelineControlNetSparse.from_pretrained(
             args.pretrained_model_name_or_path,
             image_encoder=accelerator.unwrap_model(image_encoder),
             vae=accelerator.unwrap_model(vae),

@@ -1,0 +1,19 @@
+accelerate launch train_svd.py \
+ --pretrained_model_name_or_path="stabilityai/stable-video-diffusion-img2vid" \
+ --output_dir="model_out8" \
+ --csv_path="/home/holo/sdv_controlnet/results_2M_train.csv" \
+ --video_folder="/data/webvid/webvid/preprocessed_videos2" \
+ --condition_folder="/data/webvid/webvid/lineart" \
+ --motion_folder="/data/webvid/webvid/motion_values2" \
+ --validation_image_folder="/home/holo/sdv_controlnet_sparse/validation_demo/rgb" \
+ --validation_control_folder="/home/holo/sdv_controlnet_sparse/validation_demo/lineart" \
+ --width=512 \
+ --height=512 \
+ --learning_rate=1e-5 \
+ --per_gpu_batch_size=2 \
+ --num_train_epochs=5 \
+ --mixed_precision="fp16" \
+ --gradient_accumulation_steps=3 \
+ --checkpointing_steps=2000 \
+ --validation_steps=400 \
+ --gradient_checkpointing 
