@@ -176,7 +176,7 @@ def load_images_from_folder(folder):
 
             # Resize the image
             #hardcoded sizes i dont care
-            img = img.resize((256,256))
+            img = img.resize((512,512))
 
             images.append(img)
 
@@ -1188,7 +1188,7 @@ def main():
                     pixel_values[:, 0, :, :, :])
 
                 added_time_ids = _get_add_time_ids(
-                    6,
+                    4,
                     batch["motion_values"],
                     train_noise_aug, # noise_aug_strength == 0.0
                     encoder_hidden_states.dtype,
@@ -1387,14 +1387,23 @@ def main():
                         with torch.autocast(
                             str(accelerator.device).replace(":0", ""), enabled=accelerator.mixed_precision == "fp16"
                         ):
+
+                            frame_mask = torch.zeros((1, num_frames, 1, 512, 512), dtype=torch.float32)
+                
+                            # Loop through each frame and randomly decide to mask or not (50% chance)
+                            for i in range(num_frames):
+                                # Randomly decide to mask (50% chance)
+                                mask_value = torch.ones((1, 1, 512, 512)) if torch.rand(1).item() > 0.5 else torch.zeros((1, 1, 512, 512))
+                                frame_mask[:, i] = mask_value
+                            frame_mask = frame_mask.to(latents.device)
                             for val_img_idx in range(args.num_validation_images):
                                 num_frames = args.num_frames
                                 video_frames = pipeline(
                                     validation_images[0], 
                                     validation_control_images[:14],
-                                    frame_mask[0].unsqueeze(0),
-                                    height=args.width,
-                                    width=args.height,
+                                    frame_mask,
+                                    height=512,
+                                    width=512,
                                     num_frames=num_frames,
                                     decode_chunk_size=8,
                                     motion_bucket_id=127,
