@@ -218,7 +218,7 @@ def make_train_dataset(args):
 
     # In distributed training, the load_dataset function guarantees that only one local process can concurrently
     # download the dataset.
-    dataset = WebVid10M(args.csv_path,args.video_folder,args.depth_folder,args.motion_folder)
+    dataset = WebVid10M(args.csv_path,args.video_folder,args.condition_folder,args.motion_folder)
     return dataset
 
 
@@ -667,7 +667,7 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--depth_folder",
+        "--condition_folder",
         type=str,
         default=None,
         help=(
@@ -1050,10 +1050,16 @@ def main():
         dtype,
         batch_size,
         unet=None,
+        device=None,  # Add a device parameter
     ):
-        # Ensure motion_bucket_ids is a tensor with the correct shape
+        # Determine the target device
+        target_device = device if device is not None else 'cpu'
+    
+        # Ensure motion_bucket_ids is a tensor and on the target device
         if not isinstance(motion_bucket_ids, torch.Tensor):
-            motion_bucket_ids = torch.tensor(motion_bucket_ids, dtype=dtype)
+            motion_bucket_ids = torch.tensor(motion_bucket_ids, dtype=dtype, device=target_device)
+        else:
+            motion_bucket_ids = motion_bucket_ids.to(device=target_device)
     
         # Reshape motion_bucket_ids if necessary
         if motion_bucket_ids.dim() == 1:
@@ -1063,11 +1069,11 @@ def main():
         if motion_bucket_ids.size(0) != batch_size:
             raise ValueError("The length of motion_bucket_ids must match the batch_size.")
     
-        add_time_ids = [fps, noise_aug_strength]
+        # Create fps and noise_aug_strength tensors on the target device
+        add_time_ids = torch.tensor([fps, noise_aug_strength], dtype=dtype, device=target_device).repeat(batch_size, 1)
     
-        # Concatenate fps and noise_aug_strength with motion_bucket_ids along the second dimension
-        add_time_ids = torch.tensor(add_time_ids, dtype=dtype).repeat(batch_size, 1)
-        add_time_ids = torch.cat([add_time_ids, motion_bucket_ids.to(add_time_ids)], dim=1)
+        # Concatenate with motion_bucket_ids
+        add_time_ids = torch.cat([add_time_ids, motion_bucket_ids], dim=1)
     
         # Checking the dimensions of the added time embedding
         passed_add_embed_dim = unet.config.addition_time_embed_dim * add_time_ids.size(1)
@@ -1172,7 +1178,8 @@ def main():
                     train_noise_aug, # noise_aug_strength == 0.0
                     encoder_hidden_states.dtype,
                     bsz,
-                    unet
+                    unet,
+                    device=latents.device
                 )
                 added_time_ids = added_time_ids.to(latents.device)
 
@@ -1205,7 +1212,7 @@ def main():
                     1).repeat(1, noisy_latents.shape[1], 1, 1, 1)
                 inp_noisy_latents = torch.cat(
                     [inp_noisy_latents, conditional_latents], dim=2)
-                controlnet_image = batch["depth_pixel_values"].to(dtype=weight_dtype)
+                controlnet_image = batch["depth_pixel_values"]
                 # Get the target for loss depending on the prediction type
                 # if noise_scheduler.config.prediction_type == "epsilon":
                 #     target = latents  # we are computing loss against denoise latents
@@ -1217,7 +1224,6 @@ def main():
                 #         f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
                 target = latents
-
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     inp_noisy_latents, timesteps, encoder_hidden_states,
                     added_time_ids=added_time_ids,
