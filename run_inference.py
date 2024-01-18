@@ -29,10 +29,12 @@ def save_gifs_side_by_side(batch_output, validation_images, validation_control_i
     # Function to combine GIFs side by side
     def combine_gifs_side_by_side(gif_paths, output_path):
         gifs = [Image.open(gif) for gif in gif_paths]
-
-        # Assuming all gifs have the same frame count and duration
+    
+        # Find the minimum frame count among all GIFs
+        min_frames = min(gif.n_frames for gif in gifs)
+    
         frames = []
-        for frame_idx in range(gifs[0].n_frames):
+        for frame_idx in range(min_frames):
             combined_frame = None
             for gif in gifs:
                 gif.seek(frame_idx)
@@ -41,8 +43,9 @@ def save_gifs_side_by_side(batch_output, validation_images, validation_control_i
                 else:
                     combined_frame = get_concat_h(combined_frame, gif.copy())
             frames.append(combined_frame)
-
+    
         frames[0].save(output_path, save_all=True, append_images=frames[1:], loop=0, duration=gifs[0].info['duration'])
+
 
     # Helper function to concatenate images horizontally
     def get_concat_h(im1, im2):
@@ -149,13 +152,18 @@ def load_images_from_folder(folder):
 
     # Function to extract frame number from the filename
     def frame_number(filename):
-        matches = re.findall(r'\d+', filename)  # Find all sequences of digits in the filename
+        # First, try the pattern 'frame_x_7fps'
+        new_pattern_match = re.search(r'frame_(\d+)_7fps', filename)
+        if new_pattern_match:
+            return int(new_pattern_match.group(1))
+
+        # If the new pattern is not found, use the original digit extraction method
+        matches = re.findall(r'\d+', filename)
         if matches:
             if matches[-1] == '0000' and len(matches) > 1:
                 return int(matches[-2])  # Return the second-to-last sequence if the last is '0000'
             return int(matches[-1])  # Otherwise, return the last sequence
         return float('inf')  # Return 'inf'
-
 
     # Sorting files based on frame number
     sorted_files = sorted(os.listdir(folder), key=frame_number)
@@ -174,13 +182,18 @@ def load_images_from_folder_to_pil(folder, target_size=(512, 512)):
     valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"}  # Add or remove extensions as needed
 
     def frame_number(filename):
-        matches = re.findall(r'\d+', filename)  # Find all sequences of digits in the filename
+        # Try the pattern 'frame_x_7fps'
+        new_pattern_match = re.search(r'frame_(\d+)_7fps', filename)
+        if new_pattern_match:
+            return int(new_pattern_match.group(1))
+
+        # If the new pattern is not found, use the original digit extraction method
+        matches = re.findall(r'\d+', filename)
         if matches:
             if matches[-1] == '0000' and len(matches) > 1:
                 return int(matches[-2])  # Return the second-to-last sequence if the last is '0000'
             return int(matches[-1])  # Otherwise, return the last sequence
         return float('inf')  # Return 'inf'
-
 
     # Sorting files based on frame number
     sorted_files = sorted(os.listdir(folder), key=frame_number)
@@ -270,7 +283,7 @@ if __name__ == "__main__":
     os.makedirs(val_save_dir, exist_ok=True)
 
     # Inference and saving loop
-
-    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=100,controlnet_cond_scale=1.0).frames
+    #print(validation_control_images.shape)
+    video_frames = pipeline(validation_image, validation_control_images[:14], decode_chunk_size=8,num_frames=14,motion_bucket_id=10,controlnet_cond_scale=1.0,width=512,height=512).frames
 
     save_gifs_side_by_side(video_frames,validation_images, validation_control_images,val_save_dir)
